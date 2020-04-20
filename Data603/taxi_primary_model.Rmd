@@ -1,0 +1,727 @@
+---
+title: "Data 603- Project"
+author: "Shora Dehkordi, Ryan leeson, Guarav Kumar, Maryam Sarafraz"
+date: "03/12/2019"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+---
+```{r, warning= FALSE, message = FALSE, include=FALSE }
+#Call all the libraries
+#To be able to preview HTML
+library(tidyverse)
+library(tidyr)
+library(stringr)
+library(readr)
+library(rmarkdown)
+library(Matrix)
+library(purrr)
+library(markdown)
+library(knitr)
+library(mdsr)
+library(tinytex)
+
+#
+library(data.table)
+library(stringi)
+library(lubridate)# for date
+library(splitstackshape) # for Sampling
+library(dplyr)
+library (ggplot2)
+library (mosaic)
+library (pROC)
+library (ROCR)
+library (aod)
+library (GGally)
+library (kableExtra)
+library (readxl)
+library (mctest)
+library (lmtest)
+library (olsrr)
+library (leaps)
+library (car)
+
+options(scipen = FALSE)
+```
+
+
+```{r}
+#set your source directory: session>set working directory so you don't have to change tha path
+taxitrip1 = read.csv("./chicago-taxi-rides-2016/chicago_taxi_trips_2016_01.csv", header = TRUE)
+
+taxitrip2 = read.csv("./chicago-taxi-rides-2016/chicago_taxi_trips_2016_02.csv", header = TRUE)
+
+taxitrip3 = read.csv("./chicago-taxi-rides-2016/chicago_taxi_trips_2016_03.csv", header = TRUE)
+
+taxitrip4 = read.csv("./chicago-taxi-rides-2016/chicago_taxi_trips_2016_04.csv", header = TRUE)
+
+taxitrip5 = read.csv("./chicago-taxi-rides-2016/chicago_taxi_trips_2016_05.csv", header = TRUE)
+
+taxitrip6 = read.csv("./chicago-taxi-rides-2016/chicago_taxi_trips_2016_06.csv", header = TRUE)
+
+taxitrip7 = read.csv("./chicago-taxi-rides-2016/chicago_taxi_trips_2016_07.csv", header = TRUE)
+
+taxitrip8 = read.csv("./chicago-taxi-rides-2016/chicago_taxi_trips_2016_08.csv", header = TRUE)
+
+taxitrip9 = read.csv("./chicago-taxi-rides-2016/chicago_taxi_trips_2016_09.csv", header = TRUE)
+
+taxitrip10 = read.csv("./chicago-taxi-rides-2016/chicago_taxi_trips_2016_10.csv", header = TRUE)
+
+taxitrip11 = read.csv("./chicago-taxi-rides-2016/chicago_taxi_trips_2016_11.csv", header = TRUE)
+
+taxitrip12 = read.csv("./chicago-taxi-rides-2016/chicago_taxi_trips_2016_12.csv", header = TRUE)
+
+```
+
+
+```{r}
+# Concatenate all 12 csv files vertically
+taxi_trips = rbind(taxitrip1,taxitrip2,taxitrip3,taxitrip4,taxitrip5,taxitrip6,taxitrip7,taxitrip8,taxitrip9,
+                    taxitrip10,taxitrip11,taxitrip12)
+head(taxi_trips,20)
+```
+
+```{r}
+
+# Filtered all unwanted columns
+taxitrips_wantedcol = subset(taxi_trips, select = c( pickup_community_area,dropoff_community_area, pickup_latitude,pickup_longitude,
+dropoff_latitude,dropoff_longitude,trip_miles,trip_seconds,fare,trip_start_timestamp,tips,tolls,trip_total,payment_type,company,extras))
+head(taxitrips_wantedcol,4)
+```
+
+```{r}
+#filter and clean up data, remove all columns with null or zero values in the trip_seconds, trip_miles, fare, and pickup and dropoff community areas
+
+taxi_trips1 = filter(taxitrips_wantedcol, as.integer(trip_miles) != 0)
+taxi_trips1 = filter(taxi_trips1, as.integer(trip_seconds) != 0)
+taxi_trips1 = filter(taxi_trips1, as.integer(fare) != 0)
+taxi_trips1 = filter(taxi_trips1, trip_miles != 0.0)
+taxi_trips1 = filter(taxi_trips1, trip_seconds != 0.0)
+taxi_trips1 = filter(taxi_trips1,fare != 0.0)
+taxi_trips1 = filter(taxi_trips1,fare != 0.00)
+taxi_trips1 = filter(taxi_trips1, trip_miles != 0.00)
+taxi_trips1 = filter(taxi_trips1, trip_seconds != 0.00)
+taxi_trips1 = taxi_trips1 %>% drop_na(company)
+taxi_trips1 = taxi_trips1 %>% drop_na(pickup_community_area)
+taxi_trips1 = taxi_trips1 %>% drop_na(dropoff_community_area)
+taxi_trips1 = rename(taxi_trips1,  pickup_area = pickup_community_area )
+taxi_trips1 = rename(taxi_trips1,  dropoff_area = dropoff_community_area )
+
+#head(taxi_trips1,1)
+#colnames(taxi_trips)
+```
+
+```{r}
+# Determine the number of taxi companies, pickup and drop off community_area
+length(unique(taxi_trips1[,"company"])) 
+length(unique(taxi_trips1[,"pickup_area"])) 
+length(unique(taxi_trips1[,"dropoff_area"])) 
+```
+```{r}
+# Determine which taxi company has done the most trips
+companyHighestTrip=taxi_trips1%>%group_by(company)%>%count() %>% arrange(-n)
+head(companyHighestTrip,6)
+
+```
+
+
+
+```{r}
+# Filter the dataframe for the top 4 companies with the highest taxi trips
+taxitrip_df = filter(taxi_trips1, (company %in% c(107,101,8,109)),( payment_type=="Cash" | payment_type=="Credit Card") )
+count(taxitrip_df)
+```
+
+```{r}
+# Adding pickup_dropoff_area column to prepare data for Stratified Random Sampling 
+taxitrip_df$pickup_dropoff <- paste(taxitrip_df$pickup_area,"_",taxitrip_df$dropoff_area)
+
+#adding dummy pick up drop off for trips with the same pickup and drop off area (because same pickup and dropoff location have almost same trip miles so our sampling will be biased )
+taxitrip_df$pickup_dropoff_dummy <- ifelse ((taxitrip_df$pickup_area == taxitrip_df$dropoff_area & taxitrip_df$trip_miles <= 2.5  ), "-1_-1" ,taxitrip_df$pickup_dropoff) 
+```
+
+
+
+```{r}
+# Determine the most trips by pickup-dropoff pairs and rank them
+pickup_dropoff_highestTrip=taxitrip_df%>%group_by(pickup_dropoff_dummy)%>%count() %>% arrange(-n)
+pickup_dropoff_highestTrip$pickup_dropoff_rank <- seq.int(nrow(pickup_dropoff_highestTrip))
+# show(pickup_dropoff_highestTrip)
+
+```
+
+
+```{r}
+taxitrip_df1 <- left_join(taxitrip_df, pickup_dropoff_highestTrip, by=c("pickup_dropoff_dummy" = "pickup_dropoff_dummy"))
+# head(taxitrip_df1,10)
+```
+```{r}
+#filter data for first 333 pickup_dropOff
+taxitrip_df1= filter(taxitrip_df1, pickup_dropoff_rank <= 100)
+# head(taxitrip_df1,10)
+```
+
+
+```{r}
+#adding avg_time and avg_miles column for our population
+
+taxitrip_df2 = taxitrip_df1 %>%
+    group_by(pickup_dropoff_rank) %>%
+    summarize(avg_miles = mean(trip_miles, na.rm=TRUE),avg_seconds = mean(trip_seconds, na.rm=TRUE))
+
+taxitrip_df3 <- merge( taxitrip_df1, taxitrip_df2 )
+
+count(taxitrip_df1)
+count(taxitrip_df3)
+# head(taxitrip_df3,10)
+```
+
+
+```{r}
+#getting sample of 50 rows from each taxi company 
+set.seed(1)
+taxitrip_df_sample <- stratified(taxitrip_df3, c("pickup_dropoff_rank"), 50)
+count(taxitrip_df_sample)
+```
+
+```{r}
+#adding avg_minutes
+taxitrip_df_sample = taxitrip_df_sample %>% mutate(avg_minutes = round(avg_seconds/60,0))
+# head(taxitrip_df_sample,4)
+```
+
+```{r}
+#adding hours coulmn
+taxitrip_df_sample = taxitrip_df_sample %>% mutate(hours=hour(strptime(trip_start_timestamp, '%Y-%m-%d %H:%M:%S')) )
+# head(taxitrip_df_sample,4)
+```
+
+```{r}
+#adding months coulmn
+taxitrip_df_sample = taxitrip_df_sample %>% mutate(months=month(strptime(trip_start_timestamp, '%Y-%m-%d %H:%M:%S')) )
+# head(taxitrip_df_sample,4)
+```
+
+```{r}
+#library(lubridate)
+#adding day_of_week coulmn
+taxitrip_df_sample = taxitrip_df_sample %>% mutate(day_of_week = wday(strptime(trip_start_timestamp, '%Y-%m-%d %H:%M:%S')) )
+# head(taxitrip_df_sample,4)
+```
+
+```{r}
+# Divide days of the week to weekday and weekend
+#Adding rush hour and not rush hour columns
+taxitrip_df_sample$weekend = ifelse((taxitrip_df_sample$day_of_week == 1 & taxitrip_df_sample$day_of_week == 7), 1, 0)
+             
+# head(taxitrip_df,4)
+                        
+```
+
+
+```{r}
+# In 2016 in Chicago, the rush hour time is approximately 7-9 am, 4-7 pm
+#Adding rush hour and not rush hour columns
+taxitrip_df_sample$hour_type = ifelse((taxitrip_df_sample$hours >= 7 & taxitrip_df_sample$hours <= 8), 'rush_hour',
+             ifelse((taxitrip_df_sample$hours >= 16 & taxitrip_df_sample$hours <= 18), 'rush_hour','not_rush_hour'))
+# head(taxitrip_df_sample,4)
+                        
+```
+
+```{r}
+#select subset of columns
+# Filtered all unwanted columns
+taxitrip_sample_df_final = subset(taxitrip_df_sample, select = c(pickup_area,dropoff_area, 
+trip_miles,trip_seconds,fare,trip_start_timestamp,tips,tolls,trip_total,payment_type,company,extras,pickup_dropoff,avg_miles,avg_minutes,hours,months,day_of_week,hour_type,pickup_dropoff_dummy))
+```
+
+
+```{r}
+# write the result to csv
+# write.csv(taxitrip_sample_df_final, file = "taxitrip_sample_df_final.csv")
+
+```
+
+
+
+```{r data import, results="hide" }
+taxi_data = read.csv ("./taxitrip_sample_df_final.csv")
+#head (taxi_data, 4)
+#tail (taxi_data, 7)
+```
+
+```{r, results="hide"}
+#   convert day_of_week to a numerical value
+transform (taxi_data, day_of_week = as.numeric (day_of_week))
+```
+
+```{r}
+#   Filter for weekend
+#   Sunday = 1
+#   Saturday = 7
+taxi_data$weekend = 1
+taxi_data$weekend[ taxi_data$day_of_week > 1 & taxi_data$day_of_week < 6] = 0
+```
+
+```{r, results="hide"}
+#   convert months to a numerical value
+transform (taxi_data, months = as.numeric (months))
+```
+
+```{r}
+#   Filtering for season
+taxi_data$season = "Winter"   #   Winter
+taxi_data$season[taxi_data$months > 2 & taxi_data$months < 6] = "Spring"   #   Spring
+taxi_data$season[taxi_data$months > 5 & taxi_data$months < 9] = "Summer"   #   Summer
+taxi_data$season[taxi_data$months > 8 & taxi_data$months < 12] = "Fall"   #   Fall
+```
+
+
+```{r, results="hide"}
+transform (taxi_data, hours = as.numeric (hours))
+```
+
+```{r}
+taxi_data$time_of_day = "Night"   #   Night
+taxi_data$time_of_day[taxi_data$hours >= 6 & taxi_data$hours < 12] = "Morning"   #   Morning
+taxi_data$time_of_day[taxi_data$hours >= 12 & taxi_data$hours < 18] = "Afternoon"   #   Afternoon
+taxi_data$time_of_day[taxi_data$hours >= 18 & taxi_data$hours < 24] = "Evening"   #   Evening
+```
+
+
+```{r, results="hide"}
+transform (taxi_data, season = factor (season), weekend = factor (weekend), time_of_day = factor (time_of_day))
+```
+
+
+```{r}
+ggplot(taxi_data, aes(x=trip_miles, y=fare)) +
+  geom_point() + geom_smooth()+
+  geom_hline(yintercept = 0) + ggtitle("Scatter plot fare vs actual trip miles")
+# we can see some outliers but in general we have a good correlation
+```
+
+```{r}
+ggplot(taxi_data, aes(x=avg_miles, y=fare)) +
+  geom_point() + geom_smooth()+
+  geom_hline(yintercept = 0) + ggtitle("scatter plot fare vs average miles")
+# we can see some outliers but in general we have a good correlation
+```
+
+```{r}
+ggplot(taxi_data, aes(x=avg_minutes, y=fare)) +
+  geom_point() + geom_smooth()+
+  geom_hline(yintercept = 0) + ggtitle("scatter plot fare vs average minutes")
+# we can see some outliers but in general we have a good correlation
+```
+
+```{r}
+
+ggplot(data= taxi_data , aes(x= (fare) ) )+ geom_histogram(col= 'blue' , fill='red',binwidth=0.5)+ coord_cartesian(xlim = c(0, 60)) +ggtitle("Distribution of Fare (response variable)")
+
+ggplot(data= taxi_data , aes(x= log(fare) ) )+ geom_histogram(col= 'blue' , fill='red',binwidth=0.5)+ coord_cartesian(xlim = c(0, 10)) +ggtitle("Distribution of log-Fare (response variable)")
+```
+
+###Full Linear model
+
+```{r}
+taxi_fulllm = lm ( fare ~ factor(payment_type) + factor(company) + avg_miles + avg_minutes + factor(time_of_day) + factor(season) + factor(weekend) + factor(hour_type), data = taxi_data)
+```
+
+#####Check multi colinearity
+
+```{r}
+vif (taxi_fulllm)
+```
+
+avg_miles and avg_minutes have colinearity, so, avg_minutes will be removed from the model
+
+```{r, warning= FALSE, message = FALSE}
+ggpairs (taxi_fulllm, lower = list ( continuous = "smooth_loess", combo = "facethist", discrete = "facetbar", na = "na"), cardinality_threshold = 25)
+```
+
+
+
+### Model varaible testing
+
+```{r full model}
+taxi_fulllm_new = lm ( fare ~ factor(payment_type) + factor(company) + avg_miles + factor(time_of_day) + factor(season) + factor(weekend) + factor(hour_type), data = taxi_data)
+```
+
+#### stepwise regression
+
+```{r stepwise regression}
+taxi_stepw = ols_step_both_p ( taxi_fulllm_new, pent = 0.05, prem = 0.1, details = FALSE)
+```
+avg_miles,  company, hour_type, and time_of_day are suggested for the model
+
+```{r forward regression}
+taxi_formodel = ols_step_forward_p ( taxi_fulllm_new, pent = 0.05, details = FALSE)
+```
+avg_miles, company, hour_type, and time_of_day are suggested for the model
+
+
+```{r backward model}
+taxi_backmodel = ols_step_backward_p ( taxi_fulllm_new, prem = 0.05, details = FALSE)
+```
+avg_miles, company, time_of_day and hour_type are suggested for the model.
+
+
+```{r all possible, echo=FALSE, cache=TRUE}
+ks = ols_step_best_subset (taxi_fulllm_new, details = FALSE)
+ks
+par(mfrow=c(2,2)) # split the plotting panel into a 2 x 2 grid
+plot(ks$cp,type = "o",pch=12, xlab="Number of Variables",ylab= "Cp")
+plot(ks$rsq,type = "o",pch=12, xlab="Number of Variables",ylab= "R^2")
+#plot(ks$rss, xlab="Number of Variables",ylab= "RMSE")
+plot(ks$aic,type = "o",pch=12, xlab="Number of Variables",ylab= "AIC")
+plot(ks$adjr,type = "o",pch=12, xlab="Number of Variables",ylab= "Adjusted R^2")
+```
+
+```{r}
+ks_stat2 = data.frame ( c(1, 2, 3, 4, 5, 6, 7), ks$cp, ks$aic, ks$adjr, ks$rsq)
+names (ks_stat2) = c( "Predictors", "CP", "AIC", "Adjusted R^2", "R^2")
+ks_stat2
+```
+
+Cp four variable model is best
+AIC four variable is the best
+ajd.rsq four variables is the best but five variables is very close
+
+
+
+taxi_fulllm_new = lm ( fare ~ factor(payment_type) + factor(company) + avg_miles + factor(time_of_day) + factor(season) + factor(weekend) + factor(hour_type), data = taxi_data)
+
+```{r best subset}
+best.subset = regsubsets ( fare ~ factor(payment_type) + factor(company) + avg_miles + factor(time_of_day) + factor(season) + factor(weekend) + factor(hour_type), data = taxi_data, nv = 10)
+summary ( best.subset)
+reg.summary = summary ( best.subset)
+```
+five variables : avg_miles, company, hour_type
+Four variables : company, avg_miles, 
+
+
+```{r individual t tests}
+summary (taxi_fulllm_new)
+```
+Ajd.rsq = 0.8576
+payment_type is insignificant (t = 0.347 p-value > 0.05)
+company is significant (all p-values < 0.05)
+avg_miles is significant (t = 161.584 p-value < 0.05)
+time_of_day is significant (all p-values < 0.05)
+season is insignificant (all p-values > 0.05)
+weekend is insignificant (t = 0.187 p-value > 0.05)
+hour_type is significant (t = 4.486 p-value < 0.05)
+
+The results of the individual t-tests indicates company, avg_miles, time_of_day, and hour_type should be kept in the model.
+
+
+### Models
+
+```{r}
+head (taxi_data, 4)
+```
+
+
+```{r Models}
+
+#   From indiv t-tests, same as SW, BW, FW regression
+taxi_lm_red = lm ( fare ~ factor(company) + avg_miles + factor(time_of_day) + factor(hour_type), data = taxi_data)
+
+#   Without time of day
+taxi_lm_3 = lm ( fare ~ factor(company) + avg_miles + factor(hour_type), data = taxi_data)
+
+#   Without hour_type
+taxi_lm_2 = lm ( fare ~ factor(company) + avg_miles, data = taxi_data)
+```
+
+#### Partial F-test
+```{r partial f-test}
+
+#   Comparison between full and reduced model
+anova (taxi_fulllm_new, taxi_lm_red)
+```
+```{r summary of reduced model}
+summary (taxi_lm_red)
+```
+Ajd.rsq = 0.8576. The value has not changed from the full model.
+
+### Just checking a few things.
+
+```{r}
+summary (taxi_lm_3)
+```
+
+```{r}
+#   
+anova (taxi_fulllm_new, taxi_lm_3)
+```
+
+```{r}
+ summary (taxi_lm_3)
+```
+
+```{r}
+anova (taxi_lm_red, taxi_lm_3) 
+```
+
+```{r}
+anova (taxi_fulllm_new, taxi_lm_3)
+```
+
+
+```{r}
+anova (taxi_lm_3, taxi_lm_2) 
+```
+
+```{r}
+anova (taxi_fulllm_new, taxi_lm_2)
+```
+
+
+
+```{r,echo=TRUE}
+
+# So, the final model is taxi_lm_red with 4 variables. next we are going to start adding the interactions and perform the required tests on the model
+
+```
+
+```{r Full Interaction model}
+
+taxi_lm_red_int = lm ( fare ~ (factor(company) + avg_miles + factor(time_of_day) + factor(hour_type))^2, data = taxi_data)
+```
+
+```{r}
+
+summary(taxi_lm_red_int)
+```
+
+```{r,echo=TRUE}
+
+# The full interaction model has increased the adjusted R^2 from 0.8576 to 0.8611. But the individual t-Test indicates that ONLY  avg_miles*company, hour_type*company, time_of_day*ave_miles, time_of_day*hour_type interactions are significant. So, the model to be reduced and all insignificant interactions to be removed.
+
+```
+
+
+```{r Reduced interaction model}
+
+taxi_lm_red_int_red = lm ( fare ~ factor(company) + avg_miles + factor(time_of_day) + factor(hour_type)+ avg_miles*factor(company)+
+                             factor(company)*factor(hour_type)+avg_miles*factor(time_of_day)+ 
+                             factor(time_of_day)*factor(hour_type) , data = taxi_data)
+```
+
+```{r Interaction model summary}
+
+summary(taxi_lm_red_int_red)
+```
+
+
+```{r,echo=TRUE}
+
+# the reduced interaction model has increased the adjusted R^2 from 0.8576 to 0.8601. The R^2 is slightly less than the full interaction model but no insignificant variables should be kept in the model.
+
+```
+
+
+```{r }
+# partial F test between full interaction model & the reduced interaction model
+anova (taxi_lm_red_int_red, taxi_lm_red_int)
+```
+
+```{r,echo=TRUE}
+# Hypothesis
+# H0: Bi = 0 ,               i = all coefficient indexes that are in the full interaction model but not in the reduced model
+# Ha: at least one Bi != 0 , i = all coefficient indexes that are in the full interaction model but not in the reduced model
+
+# Partial F test returned a P-value of 0.3428 > 0.05 meaning the H0 cannot be rejected. This confirms that the reduced interaction model works better than the full interaction model. 
+
+```
+
+
+```{r}
+# partial F test between reduced interaction model & the simple model
+anova (taxi_lm_red_int_red, taxi_lm_red)
+```
+
+
+```{r,echo=TRUE}
+# Hypothesis
+# H0: Bi = 0 ,               i = all coefficient indexes for the interactions 
+# Ha: at least one Bi != 0 , i = all coefficient indexes for the interactions
+
+# Partial F test returned a small P-value  < 0.05 meaning the H0 can be rejected in favor of the alternative. This means that the reduced interaction model works better than the simple model. 
+
+```
+
+
+
+
+```{r,echo=TRUE}
+
+# Next we will be checking whether a higher order relation exists between avg_miles and  fare.
+
+```
+
+```{r}
+#pairs (~fare+ avg_miles ,data = taxi_data)
+plot(taxi_data$fare,taxi_data$avg_miles)
+
+```
+
+
+```{r Higher order model}
+
+taxi_lm_red_int_red_high = lm ( fare ~ factor(company) + factor(time_of_day) +factor(hour_type)+ 
+                                  avg_miles*factor(company)+ factor(company)*factor(hour_type)+      
+                                  avg_miles*factor(time_of_day)+ factor(time_of_day)*factor(hour_type)+ 
+                                  poly(avg_miles,degree= 12, raw =TRUE), data = taxi_data)
+```
+
+
+
+```{r Higher order model summary}
+
+summary(taxi_lm_red_int_red_high)
+```
+
+```{r,echo=TRUE}
+
+# All the higher order variables seem to be significant. Also, the higher order model increased the adjusted R2 from 0.8601  to 0.8719
+
+```
+
+ 
+```{r}
+# partial F test between reduced interaction model & the higher order model
+anova (taxi_lm_red_int_red, taxi_lm_red_int_red_high)
+```
+
+```{r,echo=TRUE}
+
+# Partial F test provides a small P-value <0.05 which suggests rejecting H0 and keeping the higher order model. 
+# Next we are going to test all the model conditions
+```
+
+
+# Assumption Test
+#1. Linearity Assumption
+```{r}
+
+ggplot(taxi_lm_red_int_red, aes(x=.fitted, y=.resid)) + geom_point() + geom_smooth()+ geom_hline(yintercept = 0)
+
+```
+
+
+```{r}
+ggplot(taxi_lm_red_int_red_high, aes(x=.fitted, y=.resid)) + geom_point() + geom_smooth()+ geom_hline(yintercept = 0)
+
+# From the above plot we can observe that there is slight pattern in the residual plot but there is no pattern for our higher order model. so we can say that higher order model holds the Linearity assumption.
+
+```
+
+
+```{r,warning= FALSE, message = FALSE}
+
+ggpairs(taxi_lm_red_int_red,lower = list(continuous = "smooth_loess", combo ="facethist", discrete = "facetbar", na = "na"))
+
+```
+
+
+
+#3. Equal Variance Assumption
+```{r}
+#Breusch-Pagan test
+
+#Ho: homoscedasticity
+#Ha: heteroscedasticity 
+
+bptest(taxi_lm_red_int_red)
+bptest(taxi_lm_red_int_red_high)
+
+# From the above output of Breusch-Pagan test p-value is 0.00000000000000022 less than alpha=0.05 so we reject the null hypothesis and conclude that both the model have heteroscedasticity.
+
+```
+
+#4. Normality Assumption
+
+```{r}
+
+#Ho: the sample data are significantly normally distributed
+#Ha: the sample data are not significantly normally distributed
+
+ggplot(data=taxi_data, aes(residuals(taxi_lm_red_int_red_high))) + geom_histogram(col="red", fill="blue", binwidth=2) + labs(title="Histogram of residuals for twelve order model") + labs(x="Residuals", y="Count")
+
+ggplot(data=taxi_data, aes(residuals(taxi_lm_red_int_red))) + geom_histogram(col="red", fill="blue", binwidth=2) + labs(title="Histogram of residuals for first order model.") + labs(x="Residuals", y="Count")
+
+ggplot(taxi_data, aes(sample=taxi_lm_red_int_red$residuals)) +stat_qq() + stat_qq_line()  + labs(title="QQ-plot of residuals for first order model.")
+
+ggplot(taxi_data, aes(sample=taxi_lm_red_int_red_high$residuals)) +stat_qq() + stat_qq_line()  + labs(title="QQ-plot of residuals for twelve order model.")
+
+shapiro.test(residuals(taxi_lm_red_int_red_high))
+shapiro.test(residuals(taxi_lm_red_int_red))
+
+
+```
+
+# 5. Multicollinearity
+```{r}
+
+pairs(~fare+ avg_miles+factor(company) + factor(time_of_day) +factor(hour_type),data=taxi_data)
+
+X1<-cbind( taxi_data$avg_miles, factor(taxi_data$company), factor(taxi_data$time_of_day), factor(taxi_data$hour_type))
+imcdiag(X1,taxi_data$fare, method="VIF")
+
+# From the below plot and VIF test we can state that there is no multicollinearity in our variable.
+```
+# 6. Outlier
+```{r}
+#Residuals vs Leverage plot
+plot(taxi_lm_red_int_red_high,which=5)
+
+#Cook’s Distance
+taxi_data[cooks.distance(taxi_lm_red_int_red_high)>0.5,]
+
+plot(taxi_lm_red_int_red_high,pch=18,col="red",which=c(4))
+
+
+```
+
+
+```{r}
+lev=hatvalues(taxi_lm_red_int_red_high)
+p = length(coef(taxi_lm_red_int_red_high))
+n = nrow(taxi_data)
+outlier = lev[lev>(3*p/n)]
+print(outlier)
+
+plot(rownames(taxi_data),lev, main = "Leverage in Taxi Dataset", xlab= "observation",ylab = "Leverage Value")
+abline(h = 2 *p/n, lty = 1)
+abline(h = 3 *p/n, lty = 1)
+
+taxi_data_wo = taxi_data[-as.numeric(rownames(data.frame(outlier))),]
+
+```
+
+
+```{r}
+
+taxi_lm_red_int_red_high_wo = lm ( fare ~ factor(company) + factor(time_of_day) +factor(hour_type)+ 
+                                  avg_miles*factor(company)+ factor(company)*factor(hour_type)+      
+                                  avg_miles*factor(time_of_day)+ factor(time_of_day)*factor(hour_type)+ 
+                                  poly(avg_miles,degree= 12, raw =TRUE), data = taxi_data_wo)
+summary(taxi_lm_red_int_red_high_wo)
+
+taxi_data[cooks.distance(taxi_lm_red_int_red_high_wo)>0.5,]
+
+lev_wo=hatvalues(taxi_lm_red_int_red_high_wo)
+p = length(coef(taxi_lm_red_int_red_high_wo))
+n = nrow(taxi_data_wo)
+outlier = lev[lev>(3*p/n)]
+print(outlier)
+
+plot(rownames(taxi_data_wo),lev_wo, main = "Leverage in Taxi Dataset", xlab= "observation",ylab = "Leverage Value")
+abline(h = 2 *p/n, lty = 1)
+abline(h = 3 *p/n, lty = 1)
+
+```

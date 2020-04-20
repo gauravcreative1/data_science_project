@@ -1,0 +1,822 @@
+---
+title: "Statistical Data Anlysis of Traffic Accidents in Calgary"
+author: "Mary Sarafraz, Ryan Leeson, Shora Dehkordi, Guarav Kumar"
+date: "October 2019"
+output:
+ word_document: default
+ html_notebook: default
+ pdf_document: default
+ html_document:
+   df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r, warning= FALSE, message = FALSE }
+
+
+#Call all the libraries
+library(data.table)
+library(stringi)
+library(dplyr)
+library(ggplot2)
+library(mosaic)
+library(binom)
+library(mdsr)
+library(tinytex)
+#To be able to preview HTML
+library(tidyverse)
+library(tidyr)
+library(stringr)
+library(readr)
+library(rmarkdown)
+library(Matrix)
+library(purrr)
+library(markdown)
+library(knitr)
+options(scipen = 999)
+```
+#Introduction:
+
+
+</br>
+#Purpose:
+
+#Data
+</br>
+#Part 1: Data Wrangling
+
+**Reading Data:**
+</br>
+```{r}
+trafficAccidentDF = read.csv("C:\\Users\\shora\\Desktop\\Calgary_Traffic_Accident.csv") 
+```
+```{r}
+head(trafficAccidentDF,10)
+tail(trafficAccidentDF,10)
+```
+
+</br>
+</br>
+**1.Adding TYPE column for Type of accident.**
+```{r}
+#converting values to logical values 
+trafficAccidentDF[,"PEDESTRIAN"] <- as.logical(trafficAccidentDF[,"PEDESTRIAN"] )
+trafficAccidentDF[,"SINGLE_VEHICLE"] <- as.logical(trafficAccidentDF[,"SINGLE_VEHICLE"] )
+trafficAccidentDF[,"TWO_VEHICLE"] <- as.logical(trafficAccidentDF[,"TWO_VEHICLE"] )
+trafficAccidentDF[,"MULTI_VEHICLE"] <- as.logical(trafficAccidentDF[,"MULTI_VEHICLE"] )
+
+
+for (i in 1: nrow(trafficAccidentDF)) {
+  
+ if (trafficAccidentDF[i,"MULTI_VEHICLE"]==TRUE)  {  trafficAccidentDF[i,"TYPE"] = "MULTI_VEHICLE"} 
+  else if (trafficAccidentDF[i,"TWO_VEHICLE"]==TRUE)  {  trafficAccidentDF[i,"TYPE"] = "TWO_VEHICLE"} 
+  else if (trafficAccidentDF[i,"SINGLE_VEHICLE"]==TRUE)  {  trafficAccidentDF[i,"TYPE"] = "SINGLE_VEHICLE"}
+  else if (trafficAccidentDF[i,"PEDESTRIAN"]==TRUE)  {  trafficAccidentDF[i,"TYPE"] = "PEDESTRIAN"}
+  else {  trafficAccidentDF[i,"TYPE"] = "OTHERS"}
+
+}
+```
+</br>
+**2. Adding Season column based on date of accident**
+```{r}
+#Adding season
+for (i in 1: nrow(trafficAccidentDF)) {
+  
+ if (trafficAccidentDF[i,"MONTH"] %in% c(1,2,3))  {  trafficAccidentDF[i,"SEASON"] = "WINTER"} 
+  else if (trafficAccidentDF[i,"MONTH"] %in% c(4,5,6))  {  trafficAccidentDF[i,"SEASON"] = "SPRING"} 
+  else if (trafficAccidentDF[i,"MONTH"] %in% c(7,8,9))  {  trafficAccidentDF[i,"SEASON"] = "SUMMER"}
+
+  else {  trafficAccidentDF[i,"SEASON"] = "FALL"}
+}
+```
+</br>
+**3. Adding HOURTYPE column for type of hour(Rush-hour, NotRush-hour)  based on time of accident**
+```{r}
+#Adding rushhour
+for (i in 1: nrow(trafficAccidentDF)) {
+  
+ if (trafficAccidentDF[i,"HOUR"] %in% c(7,8))  {  trafficAccidentDF[i,"HOURTYPE"] = "RUSHHOUR"} 
+  else if (trafficAccidentDF[i,"HOUR"] %in% c(15,16,17))  {  trafficAccidentDF[i,"HOURTYPE"] = "RUSHHOUR"} 
+  else {  trafficAccidentDF[i,"HOURTYPE"] = "NOTRUSHHOUR"}
+}
+```
+</br>
+
+
+
+```{r, echo=FALSE}
+for (i in 1: nrow(trafficAccidentDF)) {  # Add the quandrant"
+        if ((stri_sub(trafficAccidentDF[i,"INCIDENT.INFO"],-1,-1) %in% c("."," ") )) { 
+       trafficAccidentDF[i,"QUADRANT1"] = stri_sub(trafficAccidentDF[i,"INCIDENT.INFO"],-3,-2) }
+  else if (( stri_sub(trafficAccidentDF[i,"INCIDENT.INFO"],-2,-1) %in% c("NW","SW","NE","SE") )) { 
+  trafficAccidentDF[i,"QUADRANT1"] =stri_sub(trafficAccidentDF[i,"INCIDENT.INFO"],-2,-1)}
+    else   { trafficAccidentDF[i,"QUADRANT1"] = "NA"}
+}
+# The "NA generatedinvalid factor level" is for 24 datapoints that don't have true quadrant and we are going to remove them 
+```
+
+
+**4. Replace empty QUADRANT**
+```{r, echo=FALSE}
+for (i in 1: nrow(trafficAccidentDF)) {  # Add the quandrant"
+        if ((trafficAccidentDF[i,"QUADRANT"]=="" & stri_sub(trafficAccidentDF[i,"INCIDENT.INFO"],-1,-1) %in% c("."," ") )) { 
+       trafficAccidentDF[i,"QUADRANT"] = stri_sub(trafficAccidentDF[i,"INCIDENT.INFO"],-3,-2) }
+  else if ((trafficAccidentDF[i,"QUADRANT"]=="" & stri_sub(trafficAccidentDF[i,"INCIDENT.INFO"],-2,-1) %in% c("NW","SW","NE","SE") )) { 
+  trafficAccidentDF[i,"QUADRANT"] =stri_sub(trafficAccidentDF[i,"INCIDENT.INFO"],-2,-1)}
+    else if (trafficAccidentDF[i,"QUADRANT"]=="") { trafficAccidentDF[i,"QUADRANT"] = "NA"}
+}
+# The "NA generatedinvalid factor level" is for 24 datapoints that don't have true quadrant and we are going to remove them 
+```
+Filtering 24 datapoints that don't have true quadrant:
+</br>
+```{r}
+unique(trafficAccidentDF$QUADRANT)
+trafficAccidentDF = filter(trafficAccidentDF, (!is.na(QUADRANT ) |trimws(QUADRANT) != ""))
+head(trafficAccidentDF,4)
+unique(trafficAccidentDF$QUADRANT)
+```
+</br>
+**5.Filtering only data for Year 2017 and 2018**
+
+
+</br>
+**6.Select only required columns**
+```{r}
+trafficAccident_wantedColumn_DF = select(trafficAccidentDF,"Count","MONTH" ,"YEAR", "QUADRANT", "TYPE","DAY","SEASON","HOURTYPE")
+```
+```{r}
+trafficAccident_wantedColumn_DF = filter(trafficAccident_wantedColumn_DF , (YEAR == "2017" |YEAR =="2018"  ))
+```
+## Part 2: Data visualization and Preliminary Observations
+```{r}
+nrow(trafficAccident_wantedColumn_DF)
+head(trafficAccident_wantedColumn_DF,4)
+tail(trafficAccident_wantedColumn_DF,4)
+```
+```{r}
+require(scales)
+ggplot(data= trafficAccident_wantedColumn_DF , aes(x= MONTH ) )+ geom_bar(col= 'blue' , fill='red')+ coord_cartesian(xlim = c(1, 12))+scale_x_continuous(labels = comma) + facet_wrap(~YEAR) + ggtitle("Traffic Accident Counts per Month for 2017 and 2018")
+
+# First we try to see if there is any pattern between two years, we see there is no pattern in two years
+```
+
+
+
+
+```{r}
+
+ggplot(data= trafficAccident_wantedColumn_DF , aes(x= TYPE ))+ geom_bar(col= 'blue',fill='red' ,position="dodge")+ ggtitle("Traffic Accident Counts by Type")+ theme(axis.text.x = element_text(angle = 90))
+# Two vehicle accident is the most common accident type following by Multi vehicle
+```
+```{r}
+
+ggplot(data= trafficAccident_wantedColumn_DF , aes(x= QUADRANT ))+ geom_bar(col= 'blue',fill='red' ,position="dodge") + theme(axis.text.x = element_text(angle = 90)) + ggtitle("Traffic Accident Counts by QUADRANT")
+# SE has highest number of accidents
+```
+```{r}
+
+ggplot(data= trafficAccident_wantedColumn_DF , aes(x= QUADRANT , fill=as.character(YEAR)))+ geom_bar(col= 'blue' ,position="dodge")+ theme(axis.text.x = element_text(angle = 90))+ ggtitle("Yearly Traffic Accident Counts by per QUADRANT")
+# 2018 has more accidents in every QUADRANT, NW has the most increase in accident
+```
+
+```{r}
+#this is our aggregation ,level(Month,day,HourType), to find number of accident per hour for rush hour and not rush hour
+trafficAccident_Perhour_agg = aggregate(trafficAccident_wantedColumn_DF$Count, by= list( MONTH=trafficAccident_wantedColumn_DF$MONTH,DAY=trafficAccident_wantedColumn_DF$DAY, HOURTYPE=trafficAccident_wantedColumn_DF$HOURTYPE  ), FUN=sum, na.rm=T)
+
+# Adding HourlyRate column
+for ( i in 1:nrow(trafficAccident_Perhour_agg)){
+trafficAccident_Perhour_agg[i,"HourlyRate"] = if (trafficAccident_Perhour_agg[i,"HOURTYPE"] =="RUSHHOUR") {trafficAccident_Perhour_agg[i,"x"] / 5 } # "5" number of rushhour hours
+else {trafficAccident_Perhour_agg[i,"x"] / 19 } # "19" number of not rushhour hours
+}
+# Caclulating traffic accident hourly average houly rate per month
+trafficAccident_AvgRate = aggregate(trafficAccident_Perhour_agg$HourlyRate, by= list( MONTH=trafficAccident_Perhour_agg$MONTH, HOURTYPE=trafficAccident_Perhour_agg$HOURTYPE  ), FUN=mean, na.rm=T)
+nrow(trafficAccident_AvgRate)
+#To show the graph nice, I just assumed that Jan 2017 has same rate as Jan 2018 because we are missing Jan 2017 data
+for (i in 1: nrow(trafficAccident_AvgRate)){
+  if (trafficAccident_AvgRate[i,"MONTH"] == 1)  {trafficAccident_AvgRate [i,3] = trafficAccident_AvgRate [i,3]*2}
+}
+
+# Sorting data by month to show it in the bar graph
+trafficAccident_AvgRate = trafficAccident_AvgRate[order(trafficAccident_AvgRate$MONTH),]
+
+
+```
+
+```{r}
+barplot(filter(trafficAccident_AvgRate,HOURTYPE=="RUSHHOUR")$x, xlab = "MONTH", main ="RUSHHOUR Average of Hourly Accident Rate by Month" ,names.arg =c(seq(1,12) ))
+
+barplot(filter(trafficAccident_AvgRate,HOURTYPE=="NOTRUSHHOUR")$x, xlab = "MONTH",main ="NON-RUSHHOUR Average of Hourly Accident Rate by Month" , names.arg =c(seq(1,12)))
+# Rush hour accidents show a more pronounced dependents to months, in April we have less than 2 accident per hour and in November we have 4 accident per hour
+# Average hourly accident rate is more consistent for not rush hour and we have 6 accident each 5 hours (1.2  per hour)
+```
+
+**Part 3: Statistical Analysis**
+
+1.	Do more traffic accidents occur during rush hour time or non-rush hour times?
+
+
+#Avrage monthly accident per hour for rush hour vs non rush hour 
+
+
+
+```{r}
+trafficAccident_Perhour_agg1 = aggregate(trafficAccident_wantedColumn_DF$Count, by= list( TYPE=trafficAccident_wantedColumn_DF$TYPE, HOURTYPE=trafficAccident_wantedColumn_DF$HOURTYPE  ), FUN=sum, na.rm=T)
+
+# Adding HourlyRate column
+# for ( i in 1:nrow(trafficAccident_Perhour_agg1)){
+# trafficAccident_Perhour_agg1[i,"HourlyRate"] = if (trafficAccident_Perhour_agg1[i,"HOURTYPE"] =="RUSHHOUR") {trafficAccident_Perhour_agg1[i,"x"] / 5 } # "5" number of rushhour hours
+# else {trafficAccident_Perhour_agg1[i,"x"] / 19 } # "19" number of not rushhour hours
+# }
+
+```
+```{r}
+totalRushHour = sum(filter(trafficAccident_Perhour_agg1,HOURTYPE=="RUSHHOUR" )[,3])
+totalRushHour
+totalnotRushHour = sum(filter(trafficAccident_Perhour_agg1,HOURTYPE=="NOTRUSHHOUR" )[,3])
+totalnotRushHour
+
+# Adding HourlyRate percent column
+for ( i in 1:nrow(trafficAccident_Perhour_agg1)){
+trafficAccident_Perhour_agg1[i,"AccidentPercent"] = if (trafficAccident_Perhour_agg1[i,"HOURTYPE"] =="RUSHHOUR") {round(trafficAccident_Perhour_agg1[i,"x"] / totalRushHour *100,2)} 
+else {round(trafficAccident_Perhour_agg1[i,"x"] / totalnotRushHour *100,2) } 
+}
+
+head(trafficAccident_Perhour_agg1,3)
+
+ggplot(data= trafficAccident_Perhour_agg1 , aes(x= HOURTYPE,fill=TYPE ))+ geom_col(aes(y=AccidentPercent),position="dodge")+ ggtitle("Traffic Accident Percent by HOUR TYPE")
+
+```
+
+
+
+
+
+# 1) Do more two vehicle traffic incidents occur during rush hour time or non-rush hour times?
+
+
+```{r}
+### 
+
+# AS discussed we investigate our hypothesis based on the proportion of TWO_VEHICLE incidents to the total number of incidents for rush hour and not rush hour. We use a prop.test
+# Also, rush hour has been considered 7-9am and 3-6 pm for Calgary
+
+# H0:  p_2v_RH = p_2v_NRH
+# Ha:  p_2v_RH > p_2v_NRH
+
+N_total_RH = nrow(filter(trafficAccident_wantedColumn_DF, HOURTYPE== 'RUSHHOUR'))  # Compute number of incidents happened during rush hour
+N_total_notRH = nrow(filter(trafficAccident_wantedColumn_DF, HOURTYPE== 'NOTRUSHHOUR')) # Compute number of incidents happened out of  rush hour
+
+N_2v_RH = nrow(filter(trafficAccident_wantedColumn_DF, HOURTYPE== 'RUSHHOUR', TYPE == 'TWO_VEHICLE')) # Compute number of two-vehicle incidents happened during rush hour
+N_2v_notRH = nrow(filter(trafficAccident_wantedColumn_DF, HOURTYPE== 'NOTRUSHHOUR', TYPE == 'TWO_VEHICLE')) # Compute number of two-vehicle incidents happened out of rush hour
+
+
+# Perform a prop-test
+
+prop.test(c(N_2v_RH,N_2v_notRH),c(N_total_RH,N_total_notRH),alternative = "greater", correct= FALSE)
+
+
+# Inference
+# As the Pvalue, P(Zobs > sqrt(8.0255) = 0.002316 which is less than 0.05 confidence level, we can reject H0 in favor of the alternative. In other words, the proportion of two-vehicle incidents that happen during rush hour is more than the proportion of two-vehicle incidents that take place outside of rush hour period. 
+
+```
+
+
+
+```{r}
+
+
+
+
+Inc_total_RH = filter(trafficAccident_wantedColumn_DF, HOURTYPE== 'RUSHHOUR')  
+Inc_total_notRH = filter(trafficAccident_wantedColumn_DF, HOURTYPE== 'NOTRUSHHOUR') 
+
+# Bootstrap method to compare two populations
+
+nsamples = 1000
+p_hat_RH_2v = numeric(nsamples)
+p_hat_notRH_2v = numeric(nsamples)
+p_hat_diff_2v = numeric(nsamples)
+
+
+for(i in 1:nsamples){
+  
+  # Computing the bootstrap statistic for two-vehicle accidents
+  sample_RH_2v = resample(Inc_total_RH$TYPE, n =N_2v_RH) 
+  p_hat_RH_2v[i] = table(sample_RH_2v)[5]/N_total_RH  # Creating two-vehicle proportion vector for  rush hours  
+  sample_notRH_2v = resample(Inc_total_notRH$TYPE, n =N_2v_notRH) 
+  p_hat_notRH_2v[i] = table(sample_notRH_2v)[5]/N_total_notRH  # Creating two-vehicle proportion vector for  not rush hours  
+  p_hat_diff_2v[i] = p_hat_RH_2v[i] - p_hat_notRH_2v[i]
+
+ }
+
+boot_difference = data.frame(p_hat_RH_2v,p_hat_notRH_2v, p_hat_diff_2v)
+
+head(boot_difference)
+tail(boot_difference)
+
+```
+```{r}
+
+favstats(p_hat_diff_2v, data =boot_difference)
+
+
+# Confidence interval for two-vehicle accidents
+qdata(p_hat_diff_2v,c(.025,.975), data =boot_difference )
+# The 95% confidence interval using bootstarpping :  0.00797 < p_hat_diff_2v < 0.04379 which is always positive and doesn't include zero. We can infer that 95% of the times the proportion of all two-vehicle incidents that happen during rush hour is " more" than the proportion of all two-vehicle incidents that happen out of rush hour period.
+
+# Density plot and Histogram of Boostrap Statistic: Population Difference for two-vehicle
+
+
+ggplot(data=boot_difference, aes(x = p_hat_diff_2v)) + geom_histogram(fill='red', col='black',binwidth = 0.003) + xlab("Two-Vehicle Accidents Proportion Difference (Rush Hour vs Not Rush Hour )") + ylab("Count") + ggtitle("Distribution of Booststrap Statistic: Two-Vehicle Accidents Proportion Difference ")
+
+ggplot(data=boot_difference, aes(x = p_hat_diff_2v)) + geom_density( col='blue') + xlab("Two-Vehicle Accidents Proportion Difference (Rush Hour vs Not Rush Hour )") + ylab("Count") + ggtitle("Distribution of Booststrap Statistic: Two-Vehicle Accidents Proportion Difference ")
+
+```
+
+
+
+
+```{r}
+
+
+for (i in 1: nrow(trafficAccident_wantedColumn_DF)) {
+  
+ if (trafficAccident_wantedColumn_DF[i,"HOURTYPE"] == "RUSHHOUR") 
+   {
+   trafficAccident_wantedColumn_DF[i,"PROPORTION"] = trafficAccident_wantedColumn_DF[i,"Count"]/nrow(filter ( trafficAccident_wantedColumn_DF, HOURTYPE == "RUSHHOUR"))
+   } 
+  else  
+  {
+    trafficAccident_wantedColumn_DF[i,"PROPORTION"] = trafficAccident_wantedColumn_DF[i,"Count"]/nrow(filter ( trafficAccident_wantedColumn_DF, HOURTYPE == "NOTRUSHHOUR"))
+  }  
+  
+} 
+
+
+```
+
+
+```{r}
+head(trafficAccident_wantedColumn_DF,5)
+```
+
+
+
+
+```{r}
+
+
+ggplot(data= filter(trafficAccident_wantedColumn_DF, TYPE == "TWO_VEHICLE") , aes(x= HOURTYPE ,y = PROPORTION, color = HOURTYPE))+ geom_bar(stat = "identity", width = 0.5) + ggtitle("Two-Vehicle Accidents Proportion for Rush Hour vs Not Rush Hour")+ xlab(" ")
+
+
+
+
+```
+
+
+
+
+# 2) Does the type of accident depend on the quadrant of the city? 
+In this part we investigated if accident types and quadrants are related. In other words, do some accident types happen more frequently in some quadrants? Since both variables are categorical, we used Chi-Squared Test of independence and a test of two proportions.  
+
+The dependency between the accident types and quadrants can be in different forms. We choose to visualize the data in a few different forms to investigate this dependency further. 
+
+Traffic accident counts by type per quadrant shows that SW has the highest number of pedestrian accident and SE has the highest number of two-vehicle accidents. 
+
+```{r}
+ggplot(data= trafficAccident_wantedColumn_DF , aes(x= TYPE ,fill=QUADRANT))+ geom_bar(col= 'blue' ,position="dodge")+ theme(axis.text.x = element_text(angle = 90))+ ggtitle("Traffic Accident Counts by Type per QUADRANT")
+# SW has hieghest number of pedestrain accident and SE has highest number Two_Vehicle accidents
+```
+
+We calculated the number of accidents per month per quadrant, and type. This helped us investigate monthly variations in accident types by quadrant. The boxplot of monthly accidents by type per quadrant shows that NE has the least amount of variation by month for two-vehicle accidents and NW has the most. 
+
+Also, east quadrants (SE and NE) have more variations in monthly multi-vehicle accidents compared to the west quadrants.
+ 
+
+
+```{r}
+#Agregate level: year,month, quadrant , and Type
+trafficAccident_agg = aggregate(trafficAccident_wantedColumn_DF$Count, by= list(YEAR=trafficAccident_wantedColumn_DF$YEAR, MONTH=trafficAccident_wantedColumn_DF$MONTH, QUADRANT=trafficAccident_wantedColumn_DF$QUADRANT ,  TYPE=trafficAccident_wantedColumn_DF$TYPE), FUN=sum, na.rm=T)
+head(trafficAccident_agg,4)
+
+ggplot(data= trafficAccident_agg, aes( x=TYPE, y=x))+ geom_boxplot(fill='blue')+facet_wrap(~QUADRANT) +theme(axis.text.x = element_text(angle = 90))+coord_flip() + ggtitle("Traffic Accident Counts per Month by Type per QUADRANT ")
+#One of the things this shows is that NE has least amount of variation by month for two vehicle accidents and NW has the most
+# East quadrants have more variation in monthly multi vehicle accident  compared to the west
+#explain how you have aggregated the data and what are people looking at
+
+```
+
+
+
+
+Based on above visualization we see that type of accident is dependent to the quadrant. For example two vehicle accidents are more common in SE while pedestrain accident are more common in SW. 
+
+To statistically validate this, we defined our statistical hypotheses as following. 
+
+Ho: Types of accidents and the quadrants of the city are Independent. 
+
+HA: Types of accidents and the quadrants of the city are dependent. 
+
+The test statistics in the categorical bivarite data is χ2obs.  
+
+First step to apply test of independence is creating contingency table.
+
+
+```{r}
+
+contTableTypeQuadrant = tally(~ QUADRANT+TYPE   , margins=TRUE, data = trafficAccident_wantedColumn_DF  )
+# Out put of tally had a extra row of zero that I removed it
+contTableTypeQuadrant = contTableTypeQuadrant[2:6,]
+contTableTypeQuadrant
+
+```
+
+Chi-squared test has a condition that the Eij≥5. As we can see in the contingency table, this condition is met.
+
+```{r}
+xchisq.test(contTableTypeQuadrant, correct=FALSE)
+
+```
+
+
+
+From this table we can see the Expected Count per quadrant by type (second row of each quadrant in the table). For example, the observed count for multi-vehicle accidents in NE is 467 while the expected count is 405. This expected value was calculated by taking the row total for NE (2914) times the column total for multi-vehicle accidents and then dividing the result by the sample size (11840). The same procedure was conducted for each cell. The general concept is that if the expected and observed counts are not too different, then the two variables are not related (i.e. are independent). In contrast, if the observed counts were much different than expected, we would conclude that there is an association (i.e. dependence) between the two variables. 
+
+The third row of each quadrant in the table shows the Chi-square contribution of each accident type to the test statistics for that quadrant. For example, the chi-square contribution of 9.38 for multi-vehicle accidents in NE was calculated by taking the squared difference between the Observed Count (467) and the Expected Count (405) then dividing by the Expected Count ((467- 405) ^2 /405). The chi-square of all accident type/quadrant cells (sum of the all cells in the third rows of all quadrants) adds up to the chi-square test statistic of 144.48.    
+
+The p-value for the Pearson’s Chi-Square test summarizes these calculations in an interpretable fashion.  This p-value of accident types being independent from the quadrants is 2E-16 (practically zero) which is below 0.05, so we declare that the result is statistically significant. From this result, we infer that the "types of accidents" and "quadrants" are dependent.   
+
+Now that we found out these categories are related, we go one step further to compare the risks of each type of accidents in each quadrant. We pursue this by "Test of Equal" or "Given Proportions". 
+
+H0: The null hypothesis is that the four populations (NW, NE, SW, SE) in which the multi-vehicle accidents have happened, have the same true proportion of total accidents.  
+
+HA: The alternative is that this proportion is different in at least one of the populations. 
+
+```{r}
+contTableTypeQuadrant
+#prop test between MULTI_VEHICLE in each Quadrant
+prop.test(contTableTypeQuadrant[1:4,"MULTI_VEHICLE"],contTableTypeQuadrant[1:4,"Total"], alternative = "two.sided")
+```
+Based on the p-value= 0.000000533, we can infer that proportion of multi-vehicle accidents is different in at least one of the four quadrants. It also provides us with the proportion of success (multi-vehicle accident happening) in each quadrant. The following table summarizes the proportion (%) of accidents happening in each quadrant by type.  We can create proportion of success for all scenarios as below: 
+```{r}
+propotionTableTypeQuadrant = contTableTypeQuadrant
+percentTableTypeQuadrant = contTableTypeQuadrant
+for (i in 1:5){
+propotionTableTypeQuadrant[i,] = contTableTypeQuadrant[i,]/contTableTypeQuadrant[i,6]
+percentTableTypeQuadrant[i,] = round((contTableTypeQuadrant[i,]/contTableTypeQuadrant[i,6]*100),1)
+}
+propotionTableTypeQuadrant
+percentTableTypeQuadrant
+
+
+
+```
+</br>
+The proportion/percentage table shows that more than 50% of accidents in all quadrants are two-vehicle accidents. The second most common accidents type in all areas are single-vehicle accidents followed by multi-vehicle accidents.  
+
+Additionally, we can compare the risks by using proportion/percentage table. We define risk as a bad outcome (accident happening) and it can be expressed either as the proportion or percentage of a group that experiences the outcome. For example, risk of a pedestrian accident in SW is 5.1% (Row 4, column 4). This means that 5 percent of all accidents in SW involves a pedestrian. As another example we can say that 3.5 percent of all accidents in all areas (Row 5, column 4) involves a pedestrian.  
+
+Relative Risk and Percent increased risk are another two measure that can be used to compare the risk of a particular outcome in two different groups. They are calculated as following. 
+
+Relative risks = Risk in group1/Risk in Group2 
+
+Percent increased risk = (Risk in group1 - Risk in Group2)/Risk in Group2 
+
+We compared two quadrants with the highest and lowest risks for each type of accident and summarized as bellow:
+for MULTI_VEHICLE type NE has highest risk 16.0 and NW has lowest 11.3%.
+Reletive risk MULTI_VEHICLE between NE and NW is 1.4% which is 41.5 percent increased risk.
+for PEDESTRIAN SW has highest risk 5.1 and NE has lowest 2.5%.
+Reletive risk PEDESTRIAN between SW and NE is 2.04 % which is 41.8 percent increased risk.
+For SINGLE_VEHICLE SE has highest risk 18.3 and SW has lowest 12.9%.
+Reletive risk SINGLE_VEHICLE between SE and SW is 1.4 % which is 104 percent increased risk.
+For TWO_VEHICLE NW has highest risk 59.2 and SE has lowest 54.5%.
+Reletive risk TWO_VEHICLE between NW and SE is 1.08% which is 8.6 percent increased risk.
+
+```{r}
+#MULTI_VEHICLE , NE and NW
+16/11.3
+(16-11.3)/11.3 *100
+(16/(100-16))/(11.3 / (100-11.3))
+# PEDESTRIAN SW and NE
+5.1 /2.5
+(5.1-2.5) /2.5 *100
+(5.1/(100-5.1))/(2.5/ (100-2.5))
+# SINGLE_VEHICLE SE and SW
+18.3/12.9
+(18.3-12.9)/12.9 *100
+(18.3/(100-18.3))/(12.9/ (100-12.9))
+# TWO_VEHICLE NW and SE
+59.2/54.5
+(59.2-54.5)/54.5 *100
+(59.2/(100-59.2))/(54.5/ (100-54.5))
+```
+
+
+#H0:B=0( month CAN NOT be expressed as a positive linear function of the number of traffic Incident)
+#HA:B≠0( month CAN be expressed as a positive linear function of the number of traffic Incident)
+
+
+head(trafficAccident_wantedColumn_DF)
+
+Yearly_Monthly_grouped = aggregate(trafficAccident_wantedColumn_DF$Count, by= list( YEAR=trafficAccident_wantedColumn_DF$YEAR,MONTH=trafficAccident_wantedColumn_DF$MONTH), FUN=sum, na.rm=T)
+
+two_vehicle_Incidend_DF  =filter(trafficAccident_wantedColumn_DF, TYPE == 'TWO_VEHICLE')
+
+Yearly_Monthly_TwoVehicle = aggregate(two_vehicle_Incidend_DF$Count, by= list( YEAR=two_vehicle_Incidend_DF$YEAR, MONTH=two_vehicle_Incidend_DF$MONTH), FUN=sum, na.rm=T)
+
+Total_Two_Inc = data.frame( Total = Yearly_Monthly_grouped$x , TWoVehicle =Yearly_Monthly_TwoVehicle$x)
+
+ggplot(data=Total_Two_Inc, aes(x = Total, y = TWoVehicle)) + geom_point(col="blue", size=2, position="jitter") + xlab("Total Accident") + ylab("Two Vehicle Accident") + ggtitle("Scatterplot of Monthly Total Accident toTwo Vehicle Accident") +stat_smooth(method="lm", col='red')
+
+#Check the strength of the relation
+cor(~Total, ~TWoVehicle,  data=Total_Two_Inc)
+
+predictTotalAcc = lm( Total~TWoVehicle, data=Total_Two_Inc)
+
+
+predictHrat = predictTotalAcc$fitted.values #place the predicted values of y for each observed x into a vector
+eisHrat = predictTotalAcc$residuals      #pull out the residuals
+predictionHrat6G = data.frame(predictHrat, eisHrat)
+
+
+ggplot(predictionHrat6G, aes(sample=eisHrat)) + stat_qq(col='blue', size=2) + stat_qqline(col='red') + ggtitle("Normal Probability Plot of the Residuals")
+
+ggplot(predictionHrat6G, aes(x = predictHrat, y = eisHrat)) +  geom_point(size=2, col='blue', position="jitter") + xlab("Predicted Value") + ylab("Residuals") + ggtitle("Plot of Fits to Residuals") + geom_hline(yintercept=0, color="red", linetype="dashed")
+
+aov(predictTotalAcc)
+
+options(scipen=999)
+summary(aov(predictTotalAcc))
+
+
+
+
+ 
+
+# 3) Does the type of accident depend on the season?
+
+We are examining whether the type of accident is independent from the season when it occurred. To do this we summarise the count of accidents by season for each type. This can be done using a bar chart.
+```{r}
+ggplot ( data= trafficAccident_wantedColumn_DF , aes ( x = TYPE, fill = SEASON)) + geom_bar ( col = 'black', position = "dodge") + theme ( axis.text.x = element_text ( angle = 90)) + ggtitle ("Traffic Accident Counts per Year by Type per Season ")
+```
+
+
+```{r}
+#   Group data by year, month, season, and type
+#   There is a count column in dataframe. Every entry appears to be 1. So, taking the sum of the Count column will give the 
+#   number of each accident for each season.
+seasontraffic_agg = aggregate ( trafficAccident_wantedColumn_DF$Count, by = list ( YEAR = trafficAccident_wantedColumn_DF$YEAR, MONTH = trafficAccident_wantedColumn_DF$MONTH, SEASON = trafficAccident_wantedColumn_DF$SEASON ,  TYPE = trafficAccident_wantedColumn_DF$TYPE), FUN = sum, na.rm = T)
+
+head (trafficAccident_agg, 4)
+
+#   Series of boxplots, divided by season using the monthly counts 
+ggplot ( data = seasontraffic_agg, aes ( x = TYPE, y = x))+ geom_boxplot ( fill = 'blue') + facet_wrap ( ~ SEASON) + theme ( axis.text.x = element_text ( angle = 90)) + coord_flip () + ggtitle ("Traffic Accident Counts per Month by Type per Season ")
+```
+From the above plots, Winter shows the greatamount of distribution. We also see variation in single vehicle accidents which suggests there might be a dependency based on season. 
+
+A tally table summarises the count of types of traffic accidents by season. Essentially, a tabular form of the bar chart rendered above.
+```{r}
+conttable_typeseason = tally ( ~ SEASON + TYPE, margins = FALSE, data = trafficAccident_wantedColumn_DF)
+conttable_typeseason
+```
+
+To test the independence of the two categorical variables we will use the xchi_sq function to determine the test statistic and the p-value.
+
+The hypotheses being tested are:
+$$
+H_0 : The \ type \ of \ incident \ is \ independent \ of \ the \ season \ when \ it \ occurred    \\
+H_A : The \ type \ of \ incident \ is \ not \ independent \ of \ the \ season \ when \ it \ occurred  
+$$
+
+```{r}
+xchisq.test ( conttable_typeseason, correct = FALSE, simulate.p.value = FALSE)
+```
+
+The test returns a chi_squared test statistic of 105.43 and a p-value of 0.00000000000000022.
+From the p-value, the null hypothesis is rejected and we can infer that the type of traffic accident is dependent on the season when it occurred in some way.
+
+Since the null hypothesis has been rejected and we have determined that type of accident is dependent on the season, we can now where the dependencies likely lie. Using the porp.test, we can examine each type of accident individually and perform a difference of proportions test comparing each season against the others, six comparisons, to find where these differences might be. 
+
+The general hypotheses for the difference of proportions are
+$$
+H_0 : p_{season 1} - p_{season 2} = 0   \\
+H_A : p_{season 1} - p_{season 2} \neq 0
+$$
+We do not start with any assumptions about the proportion for one season being high or lower than that for another season, so, we perform a series of two-sided prop tests. 
+
+Computation of seasonal difference of proportions for pedestrian related accidents.
+```{r}
+#   p_spring - p_summer
+prop.test (c(99, 109), c(2674, 2980), alternative = "two.sided", correct = FALSE)
+
+#   p_summer - p_fall
+prop.test (c(109, 136), c(2980, 3626), alternative = "two.sided", correct = FALSE)
+
+#   p_fall - p_winter
+prop.test (c(136, 69), c(3626, 2560), alternative = "two.sided", correct = FALSE)
+
+#   p_winter - p_spring
+prop.test (c(69, 99), c(2560, 2674), alternative = "two.sided", correct = FALSE)
+
+#   p_winter - p_summer
+prop.test (c(69, 109), c(2560, 2980), alternative = "two.sided", correct = FALSE)
+
+#   p_spring - p_fall
+prop.test (c(99, 136), c(2674, 3626), alternative = "two.sided", correct = FALSE)
+```
+From the results of the six proportionality tests, the p-values of three differences of proportions suggested the rejection of the null hypothesis. These three differences are: p_fall - p_winter (p-value = 0.022), p_winter - p_spring (p-value = 0.038), and p_winter - p_summer (p-value = 0.043). The 95% confidence intervals for each suggest, fall has 0.174% to 1.94% more pedestrian related accident compared to winter, spring has 0.055% to 1.96% more accidents than winter, and summer has 0.042% to 1.88% more accidents than winter. 
+
+Computation of seasonal difference of proportions for multi-vehicle accidents.
+```{r}
+#   p_spring - p_summer
+prop.test (c(340, 417), c(2674, 2980), alternative = "two.sided", correct = FALSE)
+
+#   p_summer - p_fall
+prop.test (c(417, 544), c(2980, 3626), alternative = "two.sided", correct = FALSE)
+
+#   p_fall - p_winter
+prop.test (c(544, 346), c(3626, 2560), alternative = "two.sided", correct = FALSE)
+
+#   p_winter - p_spring
+prop.test (c(346, 340), c(2560, 2674), alternative = "two.sided", correct = FALSE)
+
+#   p_winter - p_summer
+prop.test (c(346, 417), c(2560, 2980), alternative = "two.sided", correct = FALSE)
+
+#   p_spring - p_fall
+prop.test (c(340, 544), c(2674, 3626), alternative = "two.sided", correct = FALSE)
+```
+From the results of the proportionality tests, only the p-value for the comparison between spring and fall (p-value = 0.0098) showed a significant difference between the proportions of multi-vehicle accidents. From the 95% confident interval, you would expect there to be 0.057% to 4.00% more multi-vehicle in fall compared to spring. 
+
+Computation of seasonal difference of proportions for two-vehicle accidents.
+```{r}
+#   p_spring - p_summer
+prop.test (c(1561, 1746), c(2674, 2980), alternative = "two.sided", correct = FALSE)
+
+#   p_summer - p_fall
+prop.test (c(1746, 2065), c(2980, 3626), alternative = "two.sided", correct = FALSE)
+
+#   p_fall - p_winter
+prop.test (c(2065, 1365), c(3626, 2560), alternative = "two.sided", correct = FALSE)
+
+#   p_winter - p_spring
+prop.test (c(1365, 1561), c(2560, 2674), alternative = "two.sided", correct = FALSE)
+
+#   p_winter - p_summer
+prop.test (c(1365, 1746), c(2560, 2980), alternative = "two.sided", correct = FALSE)
+
+#   p_spring - p_fall
+prop.test (c(1561, 2065), c(2674, 3626), alternative = "two.sided", correct = FALSE)
+```
+From the results of the proportionality tests, the p-values for three tests showed a statistically significant difference between proportions. These three differences are: p_fall - p_winter (p-value = 0.0047), p_winter - p_spring (p-value = 0.00023), and p_winter - p_summer (p-value = 0.000081). The 95% confidence intervals for each suggest we would expect fall to have 1.11% to 6.15% more multi-vehicle accidents compared to winter, spring has 2.37% to 7.74% more accidents compared to winter, and summer has 2.65% to 7.89% more accidents compared to winter.
+
+Computation of seasonal difference of proportions for single-vehicle accidents.
+```{r}
+#   p_spring - p_summer
+prop.test (c(370, 431), c(2674, 2980), alternative = "two.sided", correct = FALSE)
+
+#   p_summer - p_fall
+prop.test (c(431, 625), c(2980, 3626), alternative = "two.sided", correct = FALSE)
+
+#   p_fall - p_winter
+prop.test (c(625, 541), c(3626, 2560), alternative = "two.sided", correct = FALSE)
+
+#   p_winter - p_spring
+prop.test (c(541, 370), c(2560, 2674), alternative = "two.sided", correct = FALSE)
+
+#   p_winter - p_summer
+prop.test (c(541, 431), c(2560, 2980), alternative = "two.sided", correct = FALSE)
+
+#   p_spring - p_fall
+prop.test (c(370, 625), c(2674, 3626), alternative = "two.sided", correct = FALSE)
+```
+From the results of the proportionality tests, only the p-value for the comparison between spring and summer (p-value = 0.500) did not show a statistically significant difference. The others that did show a significant difference are: p_summer - p_fall (p-value = 0.0022), p_fall - p_winter (p-value = 0.00011), p_winter - p_spring (p-value = 0.000000000034), p_winter - p_summer (p-value = 0.000000000077), and p_spring - p_fall (p-value = 0.00026). The 95% confidence interval for each suggest, fall has 1.01% to 4.54% more single vehicle accidents compared to fall, winter has 1.89% to 5.90% more accidents than fall, winter has 5.24 %to 9.35% more accidents compared to spring, winter has 4.65% to 8.69% more accidents compared to summer, and fall has 1.60% to 5.20% more accidents compared to spring.
+
+Computation of seasonal difference of proportions for incidents categorised as Other.
+```{r}
+#   p_spring - p_summer
+prop.test (c(304, 277), c(2674, 2980), alternative = "two.sided", correct = FALSE)
+
+#   p_summer - p_fall
+prop.test (c(277, 256), c(2980, 3626), alternative = "two.sided", correct = FALSE)
+
+#   p_fall - p_winter
+prop.test (c(256, 239), c(3626, 2560), alternative = "two.sided", correct = FALSE)
+
+#   p_winter - p_spring
+prop.test (c(239, 304), c(2560, 2674), alternative = "two.sided", correct = FALSE)
+
+#   p_winter - p_summer
+prop.test (c(239, 277), c(2560, 2980), alternative = "two.sided", correct = FALSE)
+
+#   p_spring - p_fall
+prop.test (c(304, 256), c(2674, 3626), alternative = "two.sided", correct = FALSE)
+```
+From the results of the proportionality tests, only the p-value for the comparison between winter and summer (p-value = 0.959) did not show a statistically significant difference. The others that did show a significant difference are: p_spring - p_summer (p-value = 0.011), p_summer - p_fall (p-value = 0.00090), p_fall - p_winter (p-value = 0.0.0012), p_winter - p_spring (p-value = 0.016), and  p_spring - p_fall (p-value = 0.0000000029). The 95% confidence interval for each suggest, spring has 
+0.48% to 3.67% more Other categorized incidents compared to summer, summer has 0.90% to 3.57% more indicents than fall, winter has 0.87% to 3.67% more incidents compared to fall, 0.38% to 3.68% more incidents compared to spring, and spring has 2.84% to 5.77% more incidents compared to fall.
+
+
+
+# 4) Can we create a linear regression model for the number of traffic incidences vs time?
+
+#H0:B=0( month CAN NOT be expressed as a positive linear function of the number of traffic Incident)
+#HA:B≠0( month CAN be expressed as a positive linear function of the number of traffic Incident)
+
+```{r}
+head(trafficAccident_wantedColumn_DF)
+
+Yearly_Monthly_grouped = aggregate(trafficAccident_wantedColumn_DF$Count, by= list( YEAR=trafficAccident_wantedColumn_DF$YEAR,MONTH=trafficAccident_wantedColumn_DF$MONTH), FUN=sum, na.rm=T)
+
+two_vehicle_Incidend_DF  =filter(trafficAccident_wantedColumn_DF, TYPE == 'TWO_VEHICLE')
+
+Yearly_Monthly_TwoVehicle = aggregate(two_vehicle_Incidend_DF$Count, by= list( YEAR=two_vehicle_Incidend_DF$YEAR, MONTH=two_vehicle_Incidend_DF$MONTH), FUN=sum, na.rm=T)
+
+Total_Two_Inc = data.frame( Total = Yearly_Monthly_grouped$x , TWoVehicle =Yearly_Monthly_TwoVehicle$x)
+
+ggplot(data=Total_Two_Inc, aes(x = Total, y = TWoVehicle)) + geom_point(col="blue", size=2, position="jitter") + xlab("Total Accident") + ylab("Two Vehicle Accident") + ggtitle("Scatterplot of Monthly Total Accident toTwo Vehicle Accident") +stat_smooth(method="lm", col='red')
+
+#Check the strength of the relation
+cor(~Total, ~TWoVehicle,  data=Total_Two_Inc)
+
+predictTotalAcc = lm( Total~TWoVehicle, data=Total_Two_Inc)
+
+
+predictHrat = predictTotalAcc$fitted.values #place the predicted values of y for each observed x into a vector
+eisHrat = predictTotalAcc$residuals      #pull out the residuals
+predictionHrat6G = data.frame(predictHrat, eisHrat)
+
+
+ggplot(predictionHrat6G, aes(sample=eisHrat)) + stat_qq(col='blue', size=2) + stat_qqline(col='red') + ggtitle("Normal Probability Plot of the Residuals")
+
+ggplot(predictionHrat6G, aes(x = predictHrat, y = eisHrat)) +  geom_point(size=2, col='blue', position="jitter") + xlab("Predicted Value") + ylab("Residuals") + ggtitle("Plot of Fits to Residuals") + geom_hline(yintercept=0, color="red", linetype="dashed")
+
+aov(predictTotalAcc)
+
+options(scipen=999)
+summary(aov(predictTotalAcc))
+
+
+```
+
+```{r}
+
+Nbootstraps = 1000 #resample n =  14, 3000 times
+cor.boot = numeric(Nbootstraps) #define a vector to be filled by the cor boot stat
+a.boot = numeric(Nbootstraps) #define a vector to be filled by the a boot stat
+b.boot = numeric(Nbootstraps) #define a vector to be filled by the b boot stat
+#ymean.boot = numeric(Nbootstraps) #define a vector to be filled by the predicted y boot stat
+
+nsize = dim(Total_Two_Inc)[1]  #set the n to be equal to the number of bivariate cases, number of rows
+#start of the for loop
+for(i in 1:Nbootstraps)
+{   #start of the loop
+    index = sample(nsize, replace=TRUE)  #randomly picks n- number between 1 and n, assigns as index
+    TWOV.boot = Total_Two_Inc[index, ] #accesses the i-th row of the SAT_2010High data frame
+    #
+    cor.boot[i] = cor( ~Total,~TWoVehicle, data=TWOV.boot) #computes correlation for each bootstrap sample
+    SAT.lm = lm( Total~TWoVehicle, data=TWOV.boot)  #set up the linear model
+    a.boot[i] = coef(SAT.lm)[1] #access the computed value of a, in position 1
+    b.boot[i] = coef(SAT.lm)[2] #access the computed valeu of b, in position 2
+   # ymean.boot[i] = a.boot[i] + (b.boot[i]*xvalue)
+}
+#end the loop
+#create a data frame that holds the results of teach of he Nbootstraps 
+bootstrapresultsdf = data.frame(cor.boot, a.boot, b.boot)
+    
+ggplot(bootstrapresultsdf, aes(x = cor.boot)) + geom_histogram(col="red", fill="blue", binwidth=0.01) + xlab("Values of the Bootstrap Statistic: Correlation Coefficient") + ylab("Count") + ggtitle("Distribution of Bootstrap Statistics: Correlation Coefficient")
+
+ggplot(bootstrapresultsdf, aes(x = a.boot)) + geom_histogram(col="red", fill="blue", binwidth=15) + xlab("Values of the Bootstrap Statistic: Y-Intercepy A") + ylab("Count") + ggtitle("Distribution of Bootstrap Statistics:Y-Intercepy A")
+
+ggplot(bootstrapresultsdf, aes(x = b.boot)) + geom_histogram(col="red", fill="blue", binwidth=0.05) + xlab("Values of the Bootstrap Statistic: Slope B") + ylab("Count") + ggtitle("Distribution of Bootstrap Statistics:Slope B")
+   
+boot.amean = favstats(~a.boot, data=bootstrapresultsdf)$mean
+boot.bmean = favstats(~b.boot, data=bootstrapresultsdf)$mean
+   boot.amean
+   boot.bmean
+   
+cat("The model to predict Total Accidend is Total=" ,boot.amean ,"+ (",boot.bmean ,"∗TwoVehiclei)+ei\n")
+cat ("The Total Accidend is " ,boot.amean +(boot.bmean *367))
+```
+
+```{r}
+
+df2019 = filter(trafficAccidentDF, YEAR==2019, MONTH<6)
+actual_Data2019 = aggregate(df2019$Count, by= list( YEAR=df2019$YEAR, MONTH=df2019$MONTH), FUN=sum, na.rm=T)
+df2019TwoVehicle = filter(df2019, TYPE=='TWO_VEHICLE' )
+df2019_Two_Vehicledf = aggregate(df2019TwoVehicle$Count, by= list( YEAR=df2019TwoVehicle$YEAR, MONTH=df2019TwoVehicle$MONTH), FUN=sum, na.rm=T)
+
+predictFit =numeric( dim(actual_Data2019)[1])
+predictLwr =numeric( dim(actual_Data2019)[1])
+predictUpr =numeric( dim(actual_Data2019)[1])
+ for(i in 1:5){
+   prediction = predict(predictTotalAcc, newdata=data.frame(TWoVehicle = df2019_Two_Vehicledf$x[i]), interval="predict", conf.level=0.95)
+   predictFit[i]= prediction[1]
+   predictLwr[i]= prediction[2]
+   predictUpr[i]= prediction[3]
+ }
+prediction_2019_df = data.frame(month =actual_Data2019$MONTH, TwoVehicle = df2019_Two_Vehicledf$x, Lower = predictLwr, Total = actual_Data2019$x, Upper = predictUpr )
+ print(prediction_2019_df)
+ 
+ ```
