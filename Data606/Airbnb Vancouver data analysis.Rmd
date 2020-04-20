@@ -1,0 +1,1223 @@
+---
+title: "DATA-606 Airbnb Project"
+author: "Gaurav, Ryan, Shora "
+date: "02/02/2020"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+library(ggthemes)
+library(scales)
+library(maps)
+library(mapproj)
+library(geojsonio)
+library (mosaic)
+library (survey)
+library (sampling)
+library (tidyverse)
+library (MASS)
+library (questionr)
+library(VGAM)
+library(Rfast)
+library(caTools)
+library(ResourceSelection)
+library(GGally)
+library (mctest)
+library (lmtest)
+library(ROCR)
+library(caret)
+
+
+#To be able to preview HTML
+library(tidyverse)
+library(tidyr)
+library(stringr)
+library(readr)
+library(rmarkdown)
+library(Matrix)
+library(purrr)
+library(markdown)
+library(knitr)
+library(mdsr)
+library(tinytex)
+library (markdown)
+library (knitr)
+library (kableExtra)
+```
+
+
+```{r include=FALSE}
+
+airbnb_data = read.csv ("./listings.csv")
+vancouver_geoJson <- geojson_read("./neighbourhoods.geojson",  what = "sp")
+
+```
+
+## Introduction
+#### Airbnb is an accommodation sharing community for both host and traveler. It is an online platform where hosts can list and give access to their properties or free space, and travelers can rent any listing of their choice. The information like price, location, and picture is already available on the platform but if required hosts and travelers can contact each other using the Airbnb platform and ask for more detail. This flexibility of fast information sharing makes Airbnb one of the most popular platform for affordable and short-stay accommodation. The primary objective of this project is to explore the available Airbnb listing in Vancouver based on price, minimum night, room type and location. We will also use various sampling and modeling techniques to determine if a model can be created to predict the nightly price of a stay based on the available information.
+
+## Dataset
+#### The dataset is sourced from an independent, non-commercial, entity named Inside Airbnb. Inside Airbnb collects data about Airbnb listings from various cities and releases it so people can examine how Airbnb is being used around the world. For this report, the data for Vancouver, Canada, was used. The dataset includes data on the owner of the property and about the property itself. Each entry in the dataset is a listing. Each listing includes data on the owner of the listing and data about the listing itself, including, the nightly charge, the type of property, the neighbourhood where the listing is located, etc.
+
+#### The variables of interest include, price, minimum_nights, room_type, property_type, instant_bookable, and neighbourhood. Price is the nightly charge for staying in the listing. Minimum_nights is the minimum number of nights a renter is required to book in order to stay in the listing. For example, a listing with a minimum nights of seven, means a renter must book to stay a minimum of one week. A longer stay can be booked, but not less than seven nights. Room_type describes the type of listing being provided, this includes four categories: entire home/apartment (apt), shared room, private room, and hotel room. Property_type describes the type of property where a renter will stay, this includes 21 categories, such as: house, apartment, townhouse, camper/RV, boat, etc. Instant_bookable is describes whether a listing can be booked without waiting for the owner to review and approve your application to rent the listing. Instant_bookable is a binary value that can be either "True" or "False." Neighbourhood is the physical location in Vancouver where the listing is found, based on the boundaries defined by the city. There are 29 in the dataset. 
+
+
+## Data Wrangling
+
+#### 1. Remove unused columns from the dataset which will make the data set liter and easy to process.
+#### 2. A regular expression is used to remove formatting information like "$" and "," from the price column
+
+#### 3. Airbnb's primary purpose is to provide affordable short stay so there is some data point which has an extreme value which goes against the company primary objective so we can remove this outlier.
+ 
+#### 4. Price more than 500 is quite rare and people paying such a high price will usually prefer a resort or hotel with brand name famous for their services so we can remove these values.
+
+#### 5. The minimum night is the minimum night of booking which means if a property has a minimum night of seven days   one can not book it for six days or less. Airbnb is a short stay booking platform so having a minimum night booking of two months or more is quite rare and we can remove these values from the data set.
+  
+
+```{r}
+# Remove unnecessary dimension from the data set 
+
+selection_Array <- c("id","name","host_name","host_response_rate","host_neighbourhood","host_listings_count","street", "neighbourhood" ,"zipcode", "latitude","longitude","property_type","room_type","price","minimum_nights","availability_30","availability_60","availability_90","availability_365","number_of_reviews","review_scores_value","requires_license","instant_bookable","cancellation_policy","reviews_per_month" ) 
+
+airbnb_data <-  subset(airbnb_data, select = selection_Array )
+
+airbnb_data['price'] <- gsub( ",", "", as.character(airbnb_data$price) )
+airbnb_data['price'] <- as.numeric(gsub( "\\$", "", as.character(airbnb_data$price) ,ignore.case=T))
+
+#Remove extreme outlier
+
+airbnb_data <- filter( airbnb_data, price <= 500)
+airbnb_data <- filter( airbnb_data, minimum_nights <= 60)
+```
+
+## Preliminary Analysis
+
+#### 1. There are mainly four types of rooms available at Airbnb Vancouver that is entire home or apartment, hotel room, private room, and shared room. We can observe from the figure below that the entire home or apartment is the most famous room type in Vancouver with almost 70% of the population and all other room type is in rest of the 30%. The private room is 28% of the population while the hotel room and shared room is less than 1%. We can say that the entire home apartment and private room are the two most available room type in Vancouver.
+
+```{r}
+
+data_gr_count_type <-  airbnb_data  %>% 
+  group_by(room_type) %>%
+  count() %>%
+  ungroup() %>% 
+ mutate(percent=n/sum(n)) %>%
+  data.frame()
+
+data_gr_count_type['label'] <- scales::percent(data_gr_count_type$percent)
+
+ggplot(data = data_gr_count_type,  aes(x=room_type, y=n)) +
+  geom_bar( stat="identity", fill="steelblue") +
+  labs(title="Number of Airbnb room type in Vancouver", x="Room Type", y = "Number of Property ",color="steelblue")+
+  geom_text(aes( label =label), vjust=-0.3, size=3.5)+
+  theme_minimal() +
+  theme(plot.title = element_text( size=14, face="italic"))
+
+
+
+```
+
+#### 2. There is a total of twenty-one types of property available in Vancouver. House, apartment, condominium, and guest suite contains most of the population which means it is easy to find these types of property, while townhouse, loft, guest house, villa and service apartment are also available but in less quantity. There are twelve more types of property available but in very less number and it will be hard to find such property at the desired location.
+
+```{r}
+data_gr_count_proptype <-  airbnb_data  %>% 
+  group_by(property_type) %>%
+  count() %>%
+  ungroup() %>% 
+  mutate(percent=n/sum(n)) %>%
+  data.frame()
+
+data_gr_count_proptype['label'] <- scales::percent(data_gr_count_proptype$percent)
+data_gr_count_proptype <- data_gr_count_proptype[order(-data_gr_count_proptype$n),]
+
+ggplot(data = data_gr_count_proptype,  aes(x=reorder(property_type,-n), y=n)) +
+  geom_bar( stat="identity", fill="steelblue") +
+  labs(title="Number of Airbnb Property Type in Vancouver", x="Property Type", y = "Number of Property ",
+  color="steelblue")+
+  theme_minimal() +
+  theme(plot.title = element_text( size=14, face="italic"),
+        axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+
+```
+
+#### 3. Looking at the histogram of the price we can observe that one can get an Airbnb accommodation for as low as $20 per night to $500 but most of the price is between $45 to $150. We can also observe an important trend from this histogram that most properties have a price in a round figure with a $50 increase like $100, $150, $200, $250, etc.
+
+```{r}
+
+ggplot(data = airbnb_data, aes(x =price)) +  
+ geom_histogram( binwidth=10, na.rm=TRUE, fill="steelblue") +
+  theme_minimal() +
+  xlab('Price')+ 
+  ylab('Count')+
+ ggtitle("Histogram of Airbnb Price in Vancouver")+
+  theme(plot.title = element_text(color="black", size=14, face="italic"))
+
+```
+
+#### 4. From the boxplot of price and room type below we can observe that the overall price is in decreasing order for an entire home apartment, hotel room, private room, and shared room respectively. We can also note a piece of important information that there is always an overlap in the price range for all room types which means one can get an entire home apartment for the same price that is offered for some hotel room and the same holds for private room and shared room.
+
+```{r}
+
+ggplot(data = airbnb_data, aes(x = room_type, y=price, color = room_type)) +  
+  geom_boxplot( na.rm=TRUE,show.legend = FALSE)+ 
+  xlab("Type of Room") +
+  ylab('Price')+
+  ggtitle("Price for Airbnb Room Type in Vancouver")+
+  coord_flip()+
+  theme_dark() +
+  theme(plot.title = element_text( size=14, face="italic"),
+        legend.title = element_blank())
+
+
+```
+
+#### 5. The minimum night is the minimum night stay required for booking the property. We can observe from the below histogram of the minimum night that most of the property has a minimum night booking from one day to a week but some property requires minimum booking for a month.
+
+```{r}
+
+ggplot(data = airbnb_data, aes(x =minimum_nights)) +  
+   geom_histogram( binwidth=1, na.rm=TRUE, fill="steelblue") +
+   xlab('Minimum Nights')+  
+   ylab('Count')+
+   ggtitle("Histogram of Minimum Nights in Vancouver")+
+  theme_minimal()+
+  theme(plot.title = element_text( size=14, face="italic"))
+
+```
+
+#### 6. We can observe from the boxplot of the minimum night for the different room type that the average minimum night of booking required for a hotel room and the shared room is one night while for an entire home apartment and a private room is two nights.
+
+```{r}
+ggplot(data = airbnb_data, aes(x = room_type, y=minimum_nights, color = room_type)) +  
+  geom_boxplot( na.rm=TRUE, show.legend = FALSE)+
+  xlab("Type of Room") + 
+  ylab('Minimum Nights')+
+  ggtitle("Minimum Nights for Room Type in Vancouver")+
+  coord_flip()+
+  theme_dark() +
+  theme(plot.title = element_text( size=14, face="italic"),
+        legend.title = element_blank())
+
+```
+
+#### 7. From the scatterplot of price and minimum night, we can see that as the price increases the minimum night required for the booking is decreasing. We have a lot more property with a minimum night booking of one month for a price of less than $150 as compared to a price between $150 to $250. This trend follows to price range from $250 to $350 and $350 to $450.
+
+
+```{r}
+
+ggplot(data=airbnb_data, aes(x = price, y = minimum_nights)) + 
+  geom_point(col="#ffff00", size=1, na.rm = TRUE) + 
+  xlab("Price") + 
+  ylab("Minimum Night") +
+  ggtitle("Airbnb Price to Minimum Night in Vancouver") +
+  scale_y_continuous(breaks=c(7, 30,60))+
+  theme_dark()+
+  theme(plot.title = element_text( size=14, face="italic"))
+
+
+```
+
+
+```{r}
+
+# Create grid with 0.005 latitude and longitude resolution
+grid <- function(xy, starting = c(0,0), gridsize = c(0.005,0.005)) {
+  t(apply(xy, 1, function(z) gridsize/2+starting+gridsize*(floor((z - starting)/gridsize))))
+}
+centroids <- grid(cbind(airbnb_data$latitude, airbnb_data$longitude))
+airbnb_data$long <- centroids[, 2]
+airbnb_data$lat <- centroids[, 1]
+airbnb_data$grid <- paste(airbnb_data$long, airbnb_data$lat)
+
+
+```
+
+
+#### 8.  We know that the entire home or apartment consists of 70% of the total property in Vancouver so we want to look at its geographic distribution. To observe this distribution without overplotting we created a grid of 0.005 degrees and combined all the available property based on type in that grid area. We can observe from the scatterplot of the entire home or apartment on Vancouver map that most of the property is available in Vancouver downtown and it decreases as we move away from the downtown core.
+
+
+```{r}
+
+airbnb_cnt_apt <- airbnb_data %>%
+  filter(room_type == "Entire home/apt") %>%
+  group_by(long, lat, grid) %>%
+  count() %>%
+  ungroup()
+
+ggplot() +
+  geom_polygon(data = vancouver_geoJson, aes( x = long, y = lat, group = group), fill="#2c2c2d", color="darkgray") +
+  coord_map(projection = "mercator")+
+  geom_point(data =airbnb_cnt_apt ,aes(x = long, y = lat, size = n), alpha = 0.7,  colour = '#ffff00')+
+  scale_size(range = c(0, 20))+
+  scale_size_area(max_size = 4, guide = FALSE)+ scale_radius()+
+  scale_size(range=c(0.5,6),breaks=c(5,50,100,200),labels=c( "5","50","100","200"))+
+  ggtitle("Number of Airbnb Entire Home/apt Property in Vancouver")+
+   theme_void()+
+  theme(
+        plot.background = element_rect(fill = "#2c2c2d"),
+        legend.position = "bottom",
+        legend.direction = "horizontal",
+        legend.justification = "center",
+        legend.text = element_text(color = "white"),
+        legend.title = element_text(color = "white"),
+        plot.title = element_text(color="white", size=12, face="bold.italic"))
+  
+   
+
+```
+
+#### 9. We know that the private room consists of 28% of the total property in Vancouver so we also want to look at its geographic distribution. To observe this distribution without overplotting we created a grid of 0.005 degrees and combined all the available property based on type in that grid are similar to what we did for the entire home or apartment room. We can observe a similar trend as seen for the entire home or apartment room additionally we also have a significant private room available in South Vancouver.
+
+```{r}
+
+airbnb_cnt_proom <- airbnb_data %>%
+  filter(room_type == "Private room") %>%
+  group_by(long, lat, grid) %>%
+  count() %>% 
+  ungroup()
+
+ggplot() +
+  geom_polygon(data = vancouver_geoJson, aes( x = long, y = lat, group = group), fill="#2c2c2d", color="darkgray") +
+  coord_map(projection = "mercator")+
+  geom_point(data =airbnb_cnt_proom ,aes(x = long, y = lat, size = n), alpha = 0.7,  colour = '#ffff00')+
+  ggtitle("Number of Airbnb Private Room Property in Vancouver")+
+  scale_size_area(max_size = 4, guide = FALSE)+ scale_radius()+
+  theme_void()+
+  theme(
+        plot.background = element_rect(fill = "#2c2c2d"),
+        legend.position = "bottom",
+        legend.direction = "horizontal",
+        legend.justification = "center",
+        legend.text = element_text(color = "white"),
+        legend.title = element_text(color = "white"),
+        plot.title = element_text(color="white", size=12, face="bold.italic"))
+   
+```
+
+
+
+## Sampling techniques
+
+```{r connect part 1 and 2}
+van_list_reduced_reviewed = airbnb_data
+```
+
+
+```{r population mean}
+mean (van_list_reduced_reviewed$price)
+sd (van_list_reduced_reviewed$price)
+```
+#### With the cleaned dataset, the population mean is $(153.61 +/- 97.84) per night.
+
+## Applying sampling techniques
+
+#### Three sampling techniques were applied to the dataset:
+* #### Simple Random Sampling (SRS)
+* #### Stratafied Sampling
+* #### Cluster Sampling
+
+#### For SRS and stratafied sampling, a 30 % sample was taken from the main dataset. For cluster sampling, 10 clusters were sampled from the available 29 in the dataset.
+
+
+### Simple Random Sampling
+
+#### SRS was applied by sampling a 30 % sample from the population dataset. The population dataset contained 5869 entries after cleaning, so, the sample dataset included 1761 entries.
+
+```{r one SRS}
+set.seed (1032)
+
+N = round ( length (van_list_reduced_reviewed$price) * 0.30)   #   A sample of 30% of the dataset
+
+van_sample = sample ( van_list_reduced_reviewed$id, N, replace = FALSE)
+ind = which ( van_list_reduced_reviewed$id %in% van_sample)
+
+price_sample = van_list_reduced_reviewed[ind, 14]
+
+#length (price_sample)
+
+mean (price_sample)
+sd (price_sample)
+```
+#### After the application of one SRS, the sample mean was determined to be $(155.09 +/- 95.88). This value is close to the value of the population mean, however, the result must be verified to ensure it is not the result of sampling.
+
+#### To test whether the result of SRS is reproducible, we repeat the SRS process and determine the mean and standard deviation of the all the sample means. To verify the reproducability of the result from SRS, 50 random samples of 30 % of the population dataset were taken, and the mean of each sample was calculated. The mean and standard deviation of the 50 sample means was then computed.
+```{r SRS with repeats}
+N = length (van_list_reduced_reviewed$price) * 0.30
+
+van_esti_mean = rep (0, 50)
+
+for (i in 1:50){
+  van_sample = sample ( van_list_reduced_reviewed$id, N, replace = FALSE)
+  ind = which ( van_list_reduced_reviewed$id %in% van_sample)
+  
+  price_sample = van_list_reduced_reviewed[ind, 14]
+  
+  van_esti_mean[i] = mean (price_sample)
+}
+
+mean (van_esti_mean)   #   mean of sample means
+sd (van_esti_mean)
+```
+
+#### The mean of the 50 sample means was found to be $(154.43 +/- 1.72). This result is approximately 0.08 different from the population mean. The sampling with repetition also produced a small standard deviation of 1.72. This suggests that SRS managed to generate consistence values for the sample mean. The population mean is also within one standard deviation of the mean of SRS means. This suggests that the SRS technique was able to consistently generate a sample mean close to the population mean, therefore, SRS is an appropriate technique to apply to this dataset.
+
+
+### Stratafied Sampling
+
+#### For stratafied sampling room_type was examined to determine if it would be an appropriate variable to use for the stratification of the dataset. Because room_type is a categorical variable, an individual t-test and an ANOVA test were applied to a linear model including the response variable price and the descriptive variable room_type.
+
+```{r linear correlation room_type}
+room_model = lm ( price ~ room_type, data = van_list_reduced_reviewed)
+
+summary (room_model)
+```
+#### The variable room_type included four levels, Entire home/apt, Hotel room, Private room, and Shared room. The individual t-tests indicated that all the levels of room_type were significant (all p-values < 0.05). The results of the ANOVA test, F = 563.8, df = 3 and 5865 (p-value < 0.05), also show the linear model between price and room_type was significant. This indicates a correlation between price and room_type and price which justifies the use of room_type for stratifying the population dataset for sampling.
+
+
+#### For stratified sampling, a 30 % sample of the population was taken. For room_type, this involved taking a 30 % sample from the four each of the four strata.
+
+```{r count of room type}
+strat = table (van_list_reduced_reviewed$room_type)
+strat
+```
+
+
+```{r count 30% room type}
+N = sort ( round (strat * 0.3), decreasing = TRUE)
+N
+```
+
+#### Sampling from the four strata included 1240 Entire home/apt entries, 492 Private room, 18 Shared room, and 10 Hotel room, for a total sample of 1760 entries. Taking a 30 % sample from each strata maintains the proportion each strata represents in the population data.
+
+```{r one strat}
+
+
+
+
+set.seed (1032)
+
+van_strat_ind = sampling:::strata ( van_list_reduced_reviewed, stratanames = c('room_type'), N, method = "srswor")
+
+van_strat_data = getdata ( van_list_reduced_reviewed, van_strat_ind)
+head (van_strat_data)
+
+#dim (van_strat_data)
+
+#   mean of one stratified sampling
+mean (van_strat_data$price)
+```
+
+#### One sample using stratified sampling gave a sample mean of 154.11. This value is close to the value of the population mean, however, the result must be verified to ensure it is not the result of sampling.
+
+#### Like SRS, to test the reproducability of the result from stratafied sampling, 50 replicates of the stratified sampling process were performed with 30 % of the population dataset, all with the same proportions of the four strata. From the samples the mean and standard deviation of the sample means was computed.
+
+```{r stratafication with repetition}
+van_esti_mean = rep (0, 50)
+
+for (i in 1:50){
+  strat = sampling:::strata ( van_list_reduced_reviewed, strataname = c('room_type'), N, method = "srswor")
+  mydata = getdata (van_list_reduced_reviewed, strat)
+  
+  van_esti_mean[i] = mean (mydata$price)
+}
+
+mean (van_esti_mean)   #   mean of sample means
+sd (van_esti_mean)
+```
+
+#### The mean sample mean was determined to be $(153.87 +/- 1.74). This result was close to the population mean, 154.51. Stratafied sampling also resulted in a small standard deviation, 1.74, which indicates the reproducability of the sample mean with stratafied sampling. This suggests that the stratafied sampling technique was able to consistently generate a sample mean close to the population mean, therefore, stratafied sampling is an appropriate technique to apply to this dataset to generate a sample.
+
+
+#### To examine the variance between strata (SSB) and within strata (SSW), an ANOVA test was performed. 
+```{r SSB SSW check}
+summary ( aov ( price ~ room_type, data = van_list_reduced_reviewed))
+```
+#### The results of the ANOVA were SSB = 12853690 and SSW = 44567339. The results suggest that the variance between the strata is large, which is consistent with the desired results of stratification  each strata is as different as possible so that each strata is clearly defined. However, the variance within the strata is also large. This is not the desired result. The desired outcome is a small SSW, meaning each strata is as homogeneous as possible. This brings into question whether stratafied sampling is the most appropriate technique to apply to this dataset.
+
+
+### Cluster Sampling
+
+#### For cluster sampling, neighbourhood was used to define the primary sampling units (psus) of the dataset. Neighbourhood was used because it appeared to be the most natural variable available to create clusters. In total there were 29 neighbourhoods, psus, in the dataset. To examine cluster sampling, 10 psus, of the available 29, were randomly sampled from the population.
+
+```{r count of neighbourhood}
+table (van_list_reduced_reviewed$neighbourhood)
+```
+
+```{r single one stage clustering}
+set.seed (1032)
+van_clusters = sampling:::cluster ( van_list_reduced_reviewed, clustername = c("neighbourhood"), size = 10, method = "srswor")
+van_clstd_data = getdata ( van_list_reduced_reviewed, van_clusters)
+```
+
+```{r count of neighbourhood in clustered data}
+table (van_clstd_data$neighbourhood)
+
+#   mean of one cluster sampling
+mean (van_clstd_data$price)
+```
+
+#### The sample mean for one cluster sampling is 141.93. 
+
+#### To test the reproducability of the result from cluster sampling, 100 replicates of the cluster sampling process were performed with 10 psus randomly sampled from the population dataset. From the samples the mean and standard deviation of the sample means were computed. 
+
+```{r one stage cluster with repetition}
+van_esti_clstr_mean = rep (0, 100)
+
+for (i in 1:100){
+  van_clusters = sampling:::cluster ( van_list_reduced_reviewed, clustername = c("neighbourhood"), size = 10, method = "srswor")
+  mydata = getdata ( van_list_reduced_reviewed, van_clusters)
+  
+  van_esti_clstr_mean[i] = mean (mydata$price)
+}
+
+mean (van_esti_clstr_mean)   #   mean of sample means
+sd (van_esti_clstr_mean)
+```
+
+#### The mean sample mean was determined to be $(149.42 +/- 14.73). This result is lower than the population mean, 154.51. Because the mean value after 100 replicates is lower, we can infer that the cluster sampling consistently produced a sample mean that was less than the population mean, meaning there is a bias towards smaller price values. The standard deviation for the repeated cluster sampling was also large, 14.73. The large standard deviation indicates that the computed sample means for each sample varies greatly. This would suggest cluster sampling may not be an appropriate sampling method for this dataset, as there is a large amount of variability in the results.
+
+#### Another issue this dataset presents with cluster sampling, is the result of the varying number of properties, secondary sampling units, ssus, for each neighbourhood, psu, in the dataset. From an examination of the dataset, the number of ssus for each neighbourhood can varying greatly, for example: 1102 ssus are listed in the neighbourhood 'Downtown', but only 22 are listed in 'Coal Harbour.' Other neighbourhoods vary from containing several hundred ssus to having less than a hundred ssus. Because of the varying number of ssus per cluster, the final sample size can vary greatly depending on the psus sampled. 
+
+#### The varying number of ssus also make it difficult to perform a two-stage cluster sampling. Because of the difficulty, two-stage cluster sampling was not performed.
+
+#### To examine the variation between strata (SSB) and within strata (SSW), an ANOVA test was performed. 
+
+```{r anova of clustering}
+summary ( aov ( price ~ neighbourhood, data = van_list_reduced_reviewed))
+```
+
+#### For cluster analysis, you want the variance within the the clusters to be large, so that each cluster is as heterogeneous as possible, to be representative of the population. You also want to the variance between clusters to be small, so that the clusters are as similar as possible. The results of the ANOVA were SSB = 5089200 and SSW = 52331829. This indicates a small variance between the clusters and a large variance in within the clusters. These results agree with the desired outcomes, which would indicate cluster sampling is an appropriate technique to apply to the dataset.
+
+
+#### From the results of three sampling techniques, SRS and stratafied sampling were found to have the most consistent results and the results closest to the population mean. Cluster sampling was found to have a bias towards values less than the population mean. Examining the variances between, SSB, and within, SSW, strata and clusters, it was found that for cluster sampling, SSB was small and SSW was large, indicating the clusters were heterogeneous and they did not change much between clusters. For stratafied sampling, both SSB and SSW were found to be large, indicating there were differences between strata, but the strata were not homogeneous. This would suggest SRS may be the better sampling method to apply to this dataset. However, even with the question regarding the homogeneity of the strata, because stratafied sampling was shown to consistently provide a sample mean close to the population mean, it may also be an acceptable sampling technique for the dataset.
+
+
+## Categorical Analysis
+
+#### For categorical analysis, the dependency of price on five descriptive variables was examined. Those five variables were:
+* #### minimum_nights
+* #### room_type
+* #### property_type
+* #### instant_bookable
+* #### neighbourhood
+
+#### The goal is to create a generalized linear model that will predict the price of a nightly stay, using the chosen variables. The independency of these variables with price were examined to determine which variables should be included in the model. 
+
+#### To perform categorical analysis, price and minimum_nights needed to be converted to categorical variables. Price was divided into five levels of a $100 range , so, all properties with a price less than 100 are one level, properties priced 100 to 199 are the second, and so on. The fifth level is all properties with prices equal to and above 400. For minimum_nights, the variable was divided into four levels. These levels were assigned arbitrary lengths of time. The first level was for properties where the required minimum number of nights was one night. The second level included all properties where the minimum number of nights was greater than one night and up to seven nights (one week). The third level was all properties where the minimum number of nights was between a week and a month (30 nights), and the fourth level was all properties where the minimum number of nights was greater than one month.
+
+```{r}
+van_strat_data_dup = van_strat_data
+```
+
+```{r categorise price}
+#   Converting the variable price into a categorical variable with 5 levels
+
+van_strat_data_dup$price_cat = 50   #   price [0,100)
+van_strat_data_dup$price_cat[ van_strat_data_dup$price > 99 & van_strat_data_dup$price < 200] = 150   #   price [100, 200)
+van_strat_data_dup$price_cat[ van_strat_data_dup$price > 199 & van_strat_data_dup$price < 300] = 250   #   price [200, 300)
+van_strat_data_dup$price_cat[ van_strat_data_dup$price > 299 & van_strat_data_dup$price < 400] = 350   #   price [300, 400)
+van_strat_data_dup$price_cat[ van_strat_data_dup$price > 399] = 450   #   price [400, 500]
+```
+
+```{r categorise min nights}
+#   Converting the variable minimum_nights into a categorical variable with 4 levels
+
+van_strat_data_dup$stay = 1   #   one night
+van_strat_data_dup$stay[ van_strat_data_dup$minimum_nights > 1 & van_strat_data_dup$minimum_nights < 8] = 2   #   one week stay
+van_strat_data_dup$stay[ van_strat_data_dup$minimum_nights > 7 & van_strat_data_dup$minimum_nights < 31] = 3   #   one month stay
+van_strat_data_dup$stay[ van_strat_data_dup$minimum_nights > 30] = 4   #   long stay
+```
+
+```{r}
+head (van_strat_data_dup)
+```
+
+
+### Tests
+
+```{r Pearson correlation function}
+# A self-defined function to calculate the Mantel-Haenszel statistic, as well as the p-value
+pears.cor=function(table, rscore, cscore)
+{ 
+	dim=dim(table) 
+	rbar=sum(margin.table(table,1)*rscore)/sum(table) 
+	rdif=rscore-rbar 
+	cbar=sum(margin.table(table,2)*cscore)/sum(table) 
+	cdif=cscore-cbar 
+	ssr=sum(margin.table(table,1)*(rdif^2)) 
+	ssc=sum(margin.table(table,2)*(cdif^2)) 
+	ssrc=sum(t(table*rdif)*cdif) 
+	pcor=ssrc/(sqrt(ssr*ssc)) 
+	pcor 
+	M2=(sum(table)-1)*pcor^2
+	M2
+	result=c(pcor, M2, (1-pchisq(M2,1)))
+	result=as.table(result)
+	names(result)=c('Pearson correlation','MH statistic', 'P-Value')
+	result
+} 
+```
+
+```{r Anova test}
+
+#   ANOVA test to determine the independency between a nominal variable and an ordinal variable.
+#   The function converts a contingency table to a dataframe, then performs an ANOVA test.
+
+cat_anova = function (cat_tab) {
+  
+  sorted_table = as.data.frame (cat_tab)
+  
+  Var_x = vector ()
+  Var_y = vector ()
+  
+  for (i in 1:length ( sorted_table[,3])) {
+    Var_x = c( rep ( as.character (sorted_table[ i, 1]), sorted_table[ i, 3]), Var_x)
+    Var_y = c( rep ( as.numeric ( levels (sorted_table[ i, 2]))[sorted_table[ i, 2]], sorted_table[ i, 3]), Var_y)
+  }
+  
+  tab_van = data.frame ( Var_x, Var_y)
+  
+#  print ( paste ("The x variable is", names (sorted_table)[1]))
+#  print ( paste ("The y variable is", names (sorted_table)[2]))
+  
+  summary ( aov ( Var_y ~ Var_x, data = tab_van))
+}
+```
+
+#### The categorical analysis was performed using contingency tables. Five contingency tables were produced where price was compared with one of the five descriptive variables listed above. To examine the independence of price and the other variables, the Mantel-Haenszel test and the Pearson Chi-square test were used to examine the cases where both variables of the contingency table were ordinal. When a table contained a combination of ordinal and nominal variables, an ANOVA test was performed.
+
+
+### For the generalized linear model
+
+### Price and minimum nights
+
+#### The contingency table comparing price and minimum nights is 
+```{r cat table price and min night}
+van_table_minnights = table (van_strat_data_dup$stay, van_strat_data_dup$price_cat)
+names ( dimnames (van_table_minnights)) = c( 'Nights', 'Price')
+
+van_table_minnights
+```
+
+#### Both variables are ordinal, so a Pearson's correlation test was performed,
+```{r pearson correlation price and min nights}
+pears.cor ( van_table_minnights, c(1,2,3,4), c(50,150,250,350,450))
+```
+
+#### From the results of the test, r = -0.0263, MH = 1.22 (p-value = 0.27 > 0.05), we would infer that price and minimum_nights are independent, and that the minimum number of nights for a stay do not influence the final nightly price of staying at a certain property. However, a problem with the Mantel-Haenszel test was found. It was found that the result of the test could change depending on the score applied to the MH test.  
+
+```{r pearson correlation price and min nights diff score}
+pears.cor ( van_table_minnights, c(1,7,30,55), c(50,150,250,350,450))
+```
+
+#### For example, applying the Mantel-Haenszel test again with a different score for the required minimum nights resulted in a different result than from the previous test. From these new results, r = -0.0810, MH = 11.54 (p-value = 0.00068 < 0.05), we would infer that price and minimum_nights are dependent, and that the variable should be kept in the model.
+
+#### To resolve this issue a Chi-square test was applied to the contingency table. 
+```{r}
+chisq.test (van_table_minnights)
+```
+
+#### From the result, Chi-square = 57.826, df = 12 (p-value = 0.000000056 < 0.05), we would infer that price and minimum_nights are dependent and should remain in the model.
+
+```{r}
+chisq.residuals (van_table_minnights)
+```
+
+#### Examining the residuals, indicates that properties which cost less than $100 a night and require a minimum stay of one week deviated the most from the independence assumption.
+
+#### Because of the issue with the Mantel-Haenszel test, we deferred to the result of the Chi-square test and concluded there was a dependency between price and minimum_nights and that minimum_nights should be included in the model. 
+
+
+#### The other four contingency tables were a mix of ordinal and nominal data. Therefore, an ANOVA test was used to determine whether there was independence between the variables.
+
+#### A summary of the results is provided in the following table,
+
+
+Variable            | Test statistic (F, df)   |   p-value
+--------------------|--------------------------|----------------------------
+room_type           | 164.9, df = 3, 1756      |   < 0.05
+property_type       | 6.433, df = 16, 1743     |   0.000000000000029 < 0.05
+instant_bookable    | 2.5, df = 1, 1758        |   0.114 > 0.05
+neighbourhood       | 7.724, df = 27, 1732     |   < 0.05
+
+### Price and room type
+
+```{r cat table price and room type}
+van_table_room_type = table (van_strat_data_dup$room_type, van_strat_data_dup$price_cat)
+names ( dimnames (van_table_room_type)) = c( 'Room', 'Price')
+
+van_table_room_type
+```
+
+```{r}
+cat_anova (van_table_room_type)
+```
+
+### Price and property type
+
+```{r cat table price and property type}
+van_table_prop_type = table (van_strat_data_dup$property_type, van_strat_data_dup$price_cat)
+names ( dimnames (van_table_prop_type)) = c( 'Property', 'Price')
+
+van_table_prop_type
+```
+
+```{r}
+cat_anova (van_table_prop_type)
+```
+
+### Price and instant bookable
+
+```{r cat table price and instant bookable}
+van_table_inst_book = table (van_strat_data_dup$instant_bookable, van_strat_data_dup$price_cat)
+names ( dimnames (van_table_inst_book)) = c( 'InstBook', 'Price')
+
+van_table_inst_book
+```
+
+```{r}
+cat_anova (van_table_inst_book)
+```
+
+### Price and neighbourhood
+
+```{r cat table price and neighbourhood}
+van_table_neighbour = table (van_strat_data_dup$neighbourhood, van_strat_data_dup$price_cat)
+names ( dimnames (van_table_neighbour)) = c( 'Neighbourhood', 'Price')
+
+van_table_neighbour
+```
+
+```{r}
+cat_anova (van_table_neighbour)
+```
+
+
+#### From the results of the Chi-square and ANOVA tests, only instant_bookable was found to not be significant. So, the variables room_type, property_type, minimum_nights and neighbourhood were decided to be included in the generalized linear model.
+
+
+### For the multinomial logistic regression
+
+#### Along with the generalized linear model, we also decided to create a multinomial logistic regression model. This model will predict the type of room you should rent depending on the minimum number of nights you plan to stay and the nightly price you plan to pay. For categorical analysis, it has already been determined that room_type and price are dependent. Therefore, the dependency of the minimum number of nights and room_type must be assessed. 
+
+### room_type and minimum nights
+
+#### Because the minimum_nights is ordinal and room_type is nominal, an ANOVA test was performed to determine the independence between the two variables.
+```{r cat table room_type and stay}
+van_table_rt_stay = table (van_strat_data_dup$room_type, van_strat_data_dup$stay)
+names ( dimnames (van_table_rt_stay)) = c( 'Room type', 'Night')
+
+van_table_rt_stay
+```
+
+```{r}
+cat_anova (van_table_rt_stay)
+```
+
+#### The result of the ANOVA test, F = 14.65, df = 3, 1756 (p-value = 0.000000002 < 0.05), indicates that room_type and minimum_nights are dependent. Therefore, the type of room you rent is affected by the minimum number of nights the room is available, so, the minimum-nights should be kept in the model.
+
+
+
+## Generalized Linear Regression Model
+
+
+#### 1. Split the data into train & test using SRS using 75% and 25% ratios respectively 
+
+```{r}
+
+set.seed(1000) 
+sample = sample.split(airbnb_data, SplitRatio = 0.75)
+train_srs = subset(airbnb_data, sample == TRUE)
+test_srs  = subset(airbnb_data, sample == FALSE)
+
+head(test_srs)
+
+```
+
+#### 2. k-fold cross validation
+#### Based on the independence tests performed earlier, we know the most relevant variables are "neighbourhood", "property_type", "room_type", "minimum_nights". However, to reaffirm our result we are going to use K-fold cross validation to see if any combination of three of these variables can create an error close to 4-variable model so we can build a less complicated model with almost the same accuracy. K=10 has been used for the cross validation. It can be seen that having all 4 variables in the model returns a significantly smaller error. Surprisingly, eliminating the "room_type" from the model resulted in a huge increase in the MSE (8562.144) while MSEs for the other three combinations remain fairly in the same range. This indicates that "room_type " has a significant impact on the model and should be included. The result of k-fold cross validation reaffirms that the model with four variables is the best choice. So, using three variables will create non-negligible error difference 
+
+```{r, warning=FALSE}
+
+n_iter = 5
+cv_error_a = cv_error_b = cv_error_c = cv_error_d =numeric(n_iter)
+
+for(i in 1:n_iter){
+  model_fit_a<-train(price ~neighbourhood+property_type+room_type+minimum_nights, data=airbnb_data, trControl = trainControl(method = "cv", number = 10), method='glm', family="gaussian")
+  model_fit_b<-train(price ~property_type+room_type+minimum_nights, data=airbnb_data, trControl = trainControl(method = "cv", number = 10), method='glm', family="gaussian")
+  model_fit_c<-train(price ~neighbourhood+room_type+minimum_nights, data=airbnb_data, trControl = trainControl(method = "cv", number = 10), method='glm', family="gaussian")
+  model_fit_d<-train(price ~neighbourhood+property_type+minimum_nights, data=airbnb_data, trControl = trainControl(method = "cv", number = 10), method='glm', family="gaussian")
+
+
+  cv_error_a[i]=  as.numeric(model_fit_a$results[2]) # returns the RMSE
+ 
+  cv_error_b[i]=  as.numeric(model_fit_b$results[2]) # returns the RMSE
+ 
+  cv_error_c[i]=  as.numeric(model_fit_c$results[2]) # returns the RMSE
+  
+  cv_error_d[i]=  as.numeric(model_fit_d$results[2]) # returns the RMSE
+
+
+}
+
+# to get MSE 
+data.frame(All_var_MSE = cv_error_a^2,property_room_minimum_nights_MSE =cv_error_b^2,neighbour_room_minimum_nights_MSE =cv_error_c^2,neighbour_property_minimum_nights_MSE =cv_error_d^2)
+
+# Average all the MSEs to compare
+data.frame(all_four = mean(cv_error_a)^2,property_room_nights =mean(cv_error_b)^2,neighbour_room_nights= mean(cv_error_c)^2,neighbour_property_nights= mean(cv_error_d)^2)
+
+
+
+
+```
+
+
+#### 3. str() function checks if categorical variables are already converted to a factor or not. If they are, no need to use factor() function in the model. As shown below, "neighbourhood","property_type" and "room_type" are all factor.
+
+
+```{r}
+
+str(train_srs)
+
+```
+
+
+
+
+#### 4. Build a GLM Linear Regression Model using the SRS sampled training set (75% of the whole dataset)
+#### The reason we chose these four variables as the most relevant ones is if someone suddenly decided to stay in Vancouver knowing the neighbourhood, minimum length of stay, type of room and type of property, what would be the expected price?
+#### The result shows that only some levels of the categorical variable " neighbourhood " are statistically significant. However, in this situation all levels should be allowed to be in the model as selecting only some will change the coefficient interpretation. The other three variables are almost significant and should be included in the model. In terms of the deviance, it seems that null deviance is dramatically larger than the residual deviance which signals that having these variables decreases the fit error.
+
+
+```{r, results='hide'}
+
+LR_model = glm(price ~neighbourhood+property_type+room_type+minimum_nights,data = train_srs, family = gaussian(link="identity"))
+summary(LR_model)
+
+
+```
+
+
+
+#### 5. A bar chart is plotted in order to better represent the model coefficients for LR_model trained with SRS sampled training set. As shown, the coefficients for "neighbourhood" are not as large as the ones for "property_type" and "room_type" which aligns with the t-test results. 
+
+```{r}
+
+coeffs <- coefficients(LR_model)
+      mp <- barplot(coeffs, col="#3F97D0", xaxt='n', main="Regression Coefficients")
+      lablist <- names(coeffs)
+      text(mp, par("usr")[3], labels = lablist, srt = 40, adj = c(1.1,1.1), xpd = TRUE, cex=0.6)
+
+      
+
+```
+
+#### 6. In order to see how good the model is fitted to our training set, we now test the accuracy of the model with the SRS sampled training set and calculate the error. 
+#### as expected the mean of the observed data and fitted data are the same and the MSE is even lower than what we calculated in the cross validation stage but fairly in the same range.
+
+
+```{r}
+
+
+options(scipen = 999)
+fitted_lmSRS_train <- predict(LR_model,newdata=train_srs,type='response')
+
+comp_srs_train = data.frame(Observed_value = train_srs$price,Fitted_value = round(fitted_lmSRS_train,0), Squared_Error = round((train_srs$price-fitted_lmSRS_train)^2,2) )
+head(comp_srs_train)
+c(Ave_observed = mean(train_srs$price),Ave_fitted = mean(fitted_lmSRS_train), MSE =mean(comp_srs_train$Squared_Error))
+
+
+
+```
+
+#### 7. In order to see how good the model can predict, we now test the prediction accuracy of the model with the SRS sampled test set and calculate the error.
+#### the result shows a fairly good estimate for the mean and also MSE in the same range as the accuracy with the training set. In general the MSE is too high even though the model is done a pretty good job at estimating the mean.
+
+```{r}
+
+
+fitted_lmSRS <- predict(LR_model,newdata=test_srs,type='response')
+
+comp_srs = data.frame(Observed_value = test_srs$price,Fitted_value = round(fitted_lmSRS,0), Squared_Error = round((test_srs$price-fitted_lmSRS)^2,2) )
+head(comp_srs)
+c(Ave_observed = mean(test_srs$price),Ave_fitted = mean(fitted_lmSRS), MSE =mean(comp_srs$Squared_Error))
+
+
+
+```
+
+#### 8. Assumption Test is not required when GLM is used rather than LM. However, all the assumption have been checked to gain better understanding about the data.
+#### The following plot shows that there is a funnel shape pattern in the residual plot . So we can say that these data has none of the linearity, normality and homoscedasticity. Although, these are not required one can relate the high error of the model to the heterogeneous nature of these data. 
+
+```{r}
+
+par(mfrow = c(2, 2))
+plot(LR_model)
+
+```
+
+
+#### 8.1 Testing Equal Variance using Breusch-Pagan test. The test hypothesis
+#### Ho: homoscedasticity
+#### Ha: heteroscedasticity 
+#### From the above output of Breusch-Pagan test p-value is less than alpha=0.05 so we reject the null hypothesis and conclude that heteroscedasticity is present.
+
+```{r}
+
+bptest(LR_model)
+
+
+```
+
+#### 8.2 Testing Normality using Shapiro-Wilk test
+#### Ho: the sample data are significantly normally distributed
+#### Ha: the sample data are not significantly normally distributed
+#### P_value is smaller than 0.05 and we can reject our H0 meaning that the data is not normally distributed
+
+
+```{r}
+
+
+
+shapiro.test(residuals(LR_model))
+
+
+
+```
+
+#### 8.3 Testing for Multicollinearity using correlation plot and VIF test
+#### From the below plot and VIF test we can state that there is no multicollinearity in our variables.
+
+```{r}
+
+pairs(~price + neighbourhood+minimum_nights+room_type+property_type,data=airbnb_data)
+X1<-cbind( airbnb_data$neighbourhood, airbnb_data$minimum_nights, airbnb_data$room_type,airbnb_data$property_type)
+imcdiag(X1,airbnb_data$price, method="VIF")
+
+```
+
+
+
+
+#### 9. Now we try to build a GLM Linear Regression Model with "interactions" using the SRS training set (75% of the whole dataset) with the hope of improving the fit. 
+#### Comparing the interaction model with the original model shows, both the residual deviance and AIC of the interaction model are larger than the original model. It seems that adding interactions just make the model more complex than accurate. So, we stick to the original model
+
+```{r, results='hide'}
+
+
+LR_model_int = glm(price ~(neighbourhood+property_type+room_type+minimum_nights)^2,data = train_srs, family = gaussian(link="identity"))
+summary(LR_model_int)
+
+
+```
+
+#### 10. In order to decrease the heterogeneity of the data, a LOG Transform has been applied to the response variable in the GLM Linear Regression Model using the SRS training set 
+
+```{r, results='hide'}
+
+
+LR_model_log = glm(log(price) ~neighbourhood+property_type+room_type+minimum_nights,data = train_srs, family = gaussian(link="identity"))
+summary(LR_model_log)
+
+
+```
+#### 10.1 checking if Log transform reduced the variability in our residuals. 
+#### The plot shows that log transform has visually improved the spread of residuals and also the normality 
+
+```{r}
+
+par(mfrow = c(2, 2))
+plot(LR_model_log)
+
+
+```
+
+
+#### 10.2 Equal Variance Assumption for the log-transformed model is being tested with Breusch-Pagan test
+#### Ho: homoscedasticity
+#### Ha: heteroscedasticity 
+#### The test returns a p-value which is less than alpha=0.05. So we reject the null hypothesis and conclude that heteroscedasticity is still present.
+
+```{r}
+
+bptest(LR_model_log)
+
+
+```
+
+#### 11. Test the accuracy of the log-transformed Linear Regression Model using the " SRS sampled " test data. It seems that the log transform shows less accuracy and higher error than the original LR model. So, we can conclude that log transformed model is not a suitable model for these data
+
+
+```{r}
+
+options(scipen = 999)
+fitted_lmSRS_log <- predict(LR_model_log,newdata=test_srs,type='response')
+
+comp_srs_log = data.frame(Observed_value = test_srs$price,Fitted_value = round(exp(fitted_lmSRS_log),0), Squared_Error = round((test_srs$price-exp(fitted_lmSRS_log))^2,2) )
+head(comp_srs_log)
+c(Ave_observed = mean(test_srs$price),Ave_fitted = mean(exp(fitted_lmSRS_log)), MSE =mean(comp_srs_log$Squared_Error))
+
+
+
+
+```
+
+#### 12. Split the data into training & test sets using proportional stratified sampling with "room_type" as the strata. This is mainly to compare the result with the model built with the SRS sampled data
+
+```{r}
+
+
+
+# N should be sorted descendingly otherwise there will be an error
+N=sort(round(table(airbnb_data$room_type)*0.25),decreasing = TRUE)
+set.seed(835)  # Ryan's seed is  1032
+cl=sampling:::strata(airbnb_data, stratanames=c("room_type"), N, method="srswor")
+test_strat=getdata(airbnb_data,cl)
+train_strat=airbnb_data[-cl$ID_unit,]
+
+```
+
+#### 13. Build a GLM Linear Regression Model using the Stratified training set (75% of the whole dataset). 
+#### The t-test shows some levels of "neighbourhood" and also "property_type" are not significant but we should keep them in the model. The other two variables are both significant
+
+
+```{r, results='hide'}
+
+
+LR_model2 = glm(price ~neighbourhood+property_type+room_type+minimum_nights,data = train_strat, family = gaussian(link="identity"))
+summary(LR_model2)
+
+```
+
+#### 14. plot the model coefficients for Linear Regression Model with stratified sampled training set.
+#### The following plot shows that the coefficients for ""property_type" and "room_type" are larger than the ones for "neighbourhood"
+
+
+```{r}   
+
+coeffs_strat <- coefficients(LR_model2)
+      mp_strat <- barplot(coeffs_strat, col="#3F97D0", xaxt='n', main="Regression Coefficients")
+      lablist_strat <- names(coeffs_strat)
+      text(mp_strat, par("usr")[3], labels = lablist_strat, srt = 40, adj = c(1.1,1.1), xpd = TRUE, cex=0.6)
+
+```
+
+
+
+#### 15. Test the accuracy of the  Linear Regression Model using the " stratified sampled"  test set. 
+#### It appears that test data created with stratified sampling method led to a slightly smaller MSE than the one created with SRS. This might be due to setting the room_type which showed to be a critical variable as strata and sample based on that.
+
+```{r}
+
+
+fitted_lmstrat <- predict(LR_model2,newdata=test_strat,type='response')
+
+comp_strat = data.frame(Observed_value =test_strat$price,Fitted_value =round(fitted_lmstrat,0), Squared_Error = round((test_strat$price-fitted_lmstrat)^2,2))
+head(comp_strat)
+c(Ave_observed = mean(test_strat$price),Ave_fitted = mean(fitted_lmstrat), MSE =mean(comp_strat$Squared_Error))
+
+```
+
+#### 16. Test the accuracy of the  Linear Regression Model using the " stratified sampled" training set
+
+```{r}
+
+
+fitted_lmstrat_train <- predict(LR_model2,newdata=train_strat,type='response')
+
+comp_strat_train = data.frame(Observed_value =train_strat$price,Fitted_value =round(fitted_lmstrat_train,0), Squared_Error = round((train_strat$price-fitted_lmstrat_train)^2,2))
+head(comp_strat_train)
+c(Ave_observed = mean(train_strat$price),Ave_fitted = mean(fitted_lmstrat_train), MSE =mean(comp_strat_train$Squared_Error))
+
+
+```
+
+
+
+
+#### 17. Build a GLM multinomial Regression Model using the SRS training set (75% of the whole dataset) and VGLM function
+#### A multinomial logistic regression model with all four variables used in the linear model was built initially but the result shows that none of the levels of property_type and neighbourhood are significant. So, they have been removed and only price and minimum nights were kept as the exploratory variables against room_type (response variable).
+
+#### The motivation to build this models is if someone knew how much he/she can spend on a airbnb rental property and at least how many nights he/she wanted to stay, would he/she be able to predict which type of room they are going to end up with? 
+
+#### The  Z-test shows that "price" is significant in all three logit equations. However, "minimum_nights" was only significant in one but we still include it in the model. 
+
+
+```{r}
+options(scipen = FALSE)
+
+
+logit_roomtype_vglm=vglm(room_type~price+minimum_nights,family=multinomial,data=train_srs)
+summary(logit_roomtype_vglm)
+
+
+
+```
+
+#### 18. plot the model coefficients for MR model with SRS training set
+```{r}
+
+
+coeffs_MR <- coefficients(logit_roomtype_vglm)
+      mp_MR <- barplot(coeffs_MR, col="#3F97D0", xaxt='n', main="Regression Coefficients")
+      lablist_MR <- names(coeffs_MR)
+      text(mp_MR, par("usr")[3], labels = lablist_MR, srt = 60, adj = c(1.1,1.1), xpd = TRUE, cex=0.7)
+
+
+```
+
+#### 19. goodness-of-fit test. The hypotheses for this test are:
+#### H0: there is no significant difference between the observed and the expected value.
+#### Ha: there is a significant difference between the observed and the expected value.
+#### It seems that the p_value is very small and close to zero. Then we can reject the null hypothesis in favor of the alternative meaning there is a difference between the observed and predicted values.
+
+```{r}
+
+1-pchisq(sum(resid(logit_roomtype_vglm, type="pearson")^2),df.residual(logit_roomtype_vglm))
+
+
+```
+
+
+#### 20. Check the accuracy of our GLM multinomial Regression Model on the SRS sampled training set. The accuracy shows the model predicted the correct room_type 82.59% of the time on average when using the training set 
+
+```{r}
+
+prob.fit_vglm2<-predict(logit_roomtype_vglm, newdata=train_srs, type="response") # return the probability of being in one of four categories of the room type
+fitted.result_vglm2<-colnames(prob.fit_vglm2)[rowMaxs(prob.fit_vglm2)] # turn probabilities into actual categories, pick the max of each row and return the column name associated with it
+head(data.frame(Observed_value = train_srs$room_type, Fitted_value = fitted.result_vglm2))
+misClasificError_vglm2 <- mean(fitted.result_vglm2 != train_srs$room_type)
+print(paste('Accuracy %',round((1-misClasificError_vglm2)*100 ,2)))
+
+
+
+```
+
+
+#### 21. Check the accuracy of our GLM multinomial Regression Model on the SRS sampled test set. The accuracy shows the model predicted the correct room_type 83.31% of the time on average when using the test set 
+
+```{r}
+
+prob.fit_vglm<-predict(logit_roomtype_vglm, newdata=test_srs, type="response") # return the probability of being in one of four categories of the room type
+fitted.result_vglm<-colnames(prob.fit_vglm)[rowMaxs(prob.fit_vglm)] # turn probabilities into actual categories, pick the max of each row and return the column name associated with it
+head(data.frame(Observed_value = test_srs$room_type, Fitted_value = fitted.result_vglm))
+misClasificError_vglm <- mean(fitted.result_vglm != test_srs$room_type)
+print(paste('Accuracy %',round((1-misClasificError_vglm)*100 ,2)))
+
+
+
+```
+
+
+#### 22. Build a GLM multinomial Regression Model using the stratified training set (75% of the whole dataset) and VGLM function. Again Z-test shows that "price" is significant in all three logit equations. However, "minimum_nights" was only significant in one but we still keep it in the model. This model shows a smaller residual deviance compare to the logistic model with SRS training set which can be deemed as a better model thanks to stratified sampled test set
+
+
+```{r}
+options(scipen = FALSE)
+
+logit_roomtype_vglm_strat=vglm(room_type~price+minimum_nights,family=multinomial,data=train_strat)
+summary(logit_roomtype_vglm_strat)
+
+
+
+```
+
+
+#### 23. plot the model coefficients for MR model with STRATIFIED training set
+```{r}
+
+coeffs_MR2 <- coefficients(logit_roomtype_vglm_strat)
+      mp_MR2 <- barplot(coeffs_MR2, col="#3F97D0", xaxt='n', main="Regression Coefficients")
+      lablist_MR2 <- names(coeffs_MR2)
+      text(mp_MR2, par("usr")[3], labels = lablist_MR2, srt = 60, adj = c(1.1,1.1), xpd = TRUE, cex=0.7)
+
+
+```
+
+
+
+
+#### 24. Check the accuracy of our GLM multinomial Regression Model on the stratified training set. The accuracy shows the model predicted the correct room_type 82.69% of the time on average when using the training set. It is almost the same as the accuracy for the model with SRS training set. 
+
+```{r}
+
+prob.fit_vglm3<-predict(logit_roomtype_vglm_strat, newdata=train_strat, type="response") # return the probability of being in one of four categories of the room type
+fitted.result_vglm3<-colnames(prob.fit_vglm3)[rowMaxs(prob.fit_vglm3)] # turn probabilities into actual categories, pick the max of each row and return the column name associated with it
+head(data.frame(Observed_value = train_strat$room_type, Fitted_value = fitted.result_vglm3))
+misClasificError_vglm3 <- mean(fitted.result_vglm3 != train_strat$room_type)
+print(paste('Accuracy %',round((1-misClasificError_vglm3)*100 ,2)))
+
+
+```
+
+
+#### 25. Check the accuracy of our GLM multinomial Regression Model on the stratified test set. The accuracy shows the model predicted the correct room_type 83.03% of the time on average when using the TEST dataset. It is almost the same as the accuracy for the model with SRS training set. 
+ 
+```{r}
+
+prob.fit_vglm4<-predict(logit_roomtype_vglm_strat, newdata=test_strat, type="response") # return the probability of being in one of four categories of the room type
+fitted.result_vglm4<-colnames(prob.fit_vglm4)[rowMaxs(prob.fit_vglm4)] # turn probabilities into actual categories, pick the max of each row and return the column name associated with it
+head(data.frame(Observed_value = test_strat$room_type, Fitted_value = fitted.result_vglm4))
+misClasificError_vglm4 <- mean(fitted.result_vglm4 != test_strat$room_type)
+print(paste('Accuracy %',round((1-misClasificError_vglm4)*100 ,2)))
+
+
+
+
+
+```
+
+## Conclusion
+
+#### This project has been done in four main sections, Data Wrangling, Sampling, Contingency Tables and Modeling using Vancouver's Airbnb dataset. All the findings and results achieved through the statistical analysis are as follows: 
+
+#### a. We conclude from our preliminary analysis that most of the Airbnb property in Vancouver are either Entire homes/apartments with an average required minimum nights booking of 2 days. Most of the Airbnb properties in Vancouver are available in a price range of  $45 to $150 and located in downtown or nearby location. 
+
+#### b. Stratified sampling produces a better representation of the mean compare to SRS sampling
+
+#### c. Cluster sampling is not an appropriate technique for this dataset. One of the reasons might be number of data point that we have in each cluster (neighbourhood) is widely different and sometimes the quantity of data points in each cluster it is too small.
+
+#### d. It seems that using Stratified sampled train and test set to build a model with this dataset leads to a slightly less error (MSE) in the model but the difference is not significant enough to deterministically rule out one method over another
+
+#### e. An interaction linear regression model was built but its AIC was higher than the original model and was too complex to be used. Therefore, it was initially ruled out as as an alternative 
+
+#### f. Log-transform was applied to the response variable (price) in  the original linear regression  model which Visually improved the homogeneity of the data but BP test still rejected the homoscedasticity of the data. Therefore, It was ruled our as it didn't provide any added-value to the current model.
+
+#### g. After using all the sampling and modeling techniques, we can also conclude that it is not possible to build a robust linear model to predict the price based on the available information.
+
+
+
+
+
+## Division of labour
+
+#### Gaurav was responsible for the data wrangling and performing the preliminary data analysis with all the various bar charts, box plots, and scatter plots. He was also responsible for demography analysis based on various room types by combining the map of Vancouver with a scatter plot.
+
+#### Ryan was responsible for examining the three sampling methods applied in the project. He also performed the categorical analysis, creating the various contingency tables and performing the required statistical tests to determine the independence of the five tested variables with the variable price, and between minimum_nights and room_type.
+
+#### Shora was responsible for producing the generalized linear model and multinomial regression model produced for the project. This included determining the primary descriptive variables, examining for interaction terms, testing for higher order terms, and testing the assumption of the linear model. 
+
+#### We all played an equal part in the creation of the powerpoint presentation.
+
+#### Ryan was responsible for merging the final report together.
+
+#### Gaurav was responsible for knitting the file and submitting the document.
+
+
+
+
+
+
+
+
+
+
+
+
+
